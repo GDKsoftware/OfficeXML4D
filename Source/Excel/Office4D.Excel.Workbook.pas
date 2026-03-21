@@ -144,6 +144,7 @@ type
     function BuildSharedStrings: TList<string>;
     function GetSharedStringIndex(const Strings: TList<string>; const Value: string): Integer;
     function EscapeXml(const Text: string): string;
+    function AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
     function GenerateContentTypes: string;
     function GenerateRels: string;
     function GenerateWorkbook: string;
@@ -1518,6 +1519,67 @@ begin
   end;
 end;
 
+function TExcelWorkbook.AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
+// Adjusts relative cell references in a formula by the given row and column
+// deltas. Absolute references ($A$1) are left unchanged. Used when expanding shared formulas.
+var
+  Adjusted: string;
+begin
+  if (RowDelta = 0) and (ColDelta = 0) then
+    Exit(Formula);
+
+  Adjusted := Formula;
+  // Match cell references of the form [SheetName!][$]ColLetters[$]RowNumber.
+  // We handle relative row (no $ before row number) and relative column (no $ before col letters).
+  // Pattern: optionally anchored sheet prefix, then optional $, column letters, optional $, row digits.
+  const RefPattern = '(?<![A-Z$])(\$?[A-Z]+)(\$?\d+)';
+  var Matches := TRegEx.Matches(Formula, RefPattern, [roIgnoreCase]);
+  var OffsetAdjust := 0;
+  for var M in Matches do
+  begin
+    const ColPart = M.Groups[1].Value;  // e.g. 'A' or '$A'
+    const RowPart = M.Groups[2].Value;  // e.g. '1' or '$1'
+    const ColAbs = ColPart.StartsWith('$');
+    const RowAbs = RowPart.StartsWith('$');
+
+    var NewColPart := ColPart;
+    var NewRowPart := RowPart;
+
+    if (not RowAbs) and (RowDelta <> 0) then
+    begin
+      const OldRow = StrToIntDef(RowPart, 0);
+      if OldRow > 0 then
+        NewRowPart := IntToStr(OldRow + RowDelta);
+    end;
+
+    if (not ColAbs) and (ColDelta <> 0) then
+    begin
+      var ColNum := TExcelSheet.ColumnLetterToNumber(ColPart);
+      Inc(ColNum, ColDelta);
+      // Convert column number back to letters
+      var ColLetters := '';
+      while ColNum > 0 do
+      begin
+        const Remainder = (ColNum - 1) mod 26;
+        ColLetters := Chr(Ord('A') + Remainder) + ColLetters;
+        ColNum := (ColNum - 1) div 26;
+      end;
+      NewColPart := ColLetters;
+    end;
+
+    if (NewColPart <> ColPart) or (NewRowPart <> RowPart) then
+    begin
+      const OldRef = ColPart + RowPart;
+      const NewRef = NewColPart + NewRowPart;
+      const Pos = M.Index + OffsetAdjust;  // TMatch.Index is 1-based (Delphi string convention)
+      Delete(Adjusted, Pos, Length(OldRef));
+      Insert(NewRef, Adjusted, Pos);
+      Inc(OffsetAdjust, Length(NewRef) - Length(OldRef));
+    end;
+  end;
+  Result := Adjusted;
+end;
+
 procedure TExcelWorkbook.ParseSheet(const Sheet: TExcelSheet; const Xml: string);
 begin
   const RowMatches = TRegEx.Matches(Xml, '<row\s[^>]*>', [roIgnoreCase]);
@@ -1539,16 +1601,74 @@ begin
     end;
   end;
 
-  const CellMatches = TRegEx.Matches(Xml, '<c\s+r="([A-Z]+\d+)"(?:\s+s="(\d+)")?(?:\s+t="([^"]*)")?[^>]*>(?:<f>([^<]*)</f>)?.*?<v>([^<]*)</v>.*?</c>', [roIgnoreCase, roSingleLine]);
-  for var Match in CellMatches do
-  begin
-    if Match.Groups.Count > 5 then
+  // Build a map of shared formula index -> (masterAddress, formulaString).
+  // Excel writes shared formulas as <f t="shared" si="N" ref="...">formula</f> on the
+  // master cell and <f t="shared" si="N"/> (self-closing, no text) on the dependent cells.
+  // We need the master address to compute row/column offsets for relative-reference adjustment.
+  var SharedFormulas := TDictionary<Integer, TPair<string, string>>.Create;
+  try
+    // Scan backwards in the XML: for each master cell (<c r="ADDR">...<f ... si="N">formula</f>...)
+    // capture ADDR, N, and formula. We match the whole <c>...</c> block.
+    const SharedMasterMatches = TRegEx.Matches(Xml,
+      '<c\s+r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*<f\s[^>]*\bsi="(\d+)"[^>]*>([^<]+)</f>',
+      [roIgnoreCase, roSingleLine]);
+    for var SfMatch in SharedMasterMatches do
+      if SfMatch.Groups.Count > 3 then
+      begin
+        const SiIdx = StrToIntDef(SfMatch.Groups[2].Value, -1);
+        if SiIdx >= 0 then
+          SharedFormulas.AddOrSetValue(SiIdx,
+            TPair<string, string>.Create(SfMatch.Groups[1].Value, SfMatch.Groups[3].Value));
+      end;
+
+    // Match each cell element.
+    // The <f> element may have attributes (e.g. t="shared" si="0"), so we use
+    // <f[^>]*> for the opening tag. Self-closing <f.../> cells have an empty formula
+    // text; the si index is extracted separately for shared-formula dependent-cell resolution.
+    // Group layout: 1=address, 2=style, 3=cell-type, 4=formula-text, 5=si-index, 6=value.
+    const CellMatches = TRegEx.Matches(Xml,
+      '<c\s+r="([A-Z]+\d+)"(?:\s+s="(\d+)")?(?:\s+t="([^"]*)")?[^>]*>' +
+      '(?:<f(?:\s+[^>]*)?>([^<]*)</f>|<f(?:\s+[^>]*)?\bsi="(\d+)"[^/]*/>)?' +
+      '.*?<v>([^<]*)</v>.*?</c>',
+      [roIgnoreCase, roSingleLine]);
+    for var Match in CellMatches do
     begin
-      const Address = Match.Groups[1].Value;
-      const StyleIdx = StrToIntDef(Match.Groups[2].Value, 0);
-      const CellType = Match.Groups[3].Value;
-      const Formula = Match.Groups[4].Value;
-      const Value = Match.Groups[5].Value;
+      if Match.Groups.Count > 6 then
+      begin
+        const Address = Match.Groups[1].Value;
+        const StyleIdx = StrToIntDef(Match.Groups[2].Value, 0);
+        const CellType = Match.Groups[3].Value;
+        var   Formula: string := Match.Groups[4].Value;
+        const SiIndex  = Match.Groups[5].Value;
+        const Value    = Match.Groups[6].Value;
+
+        // Dependent shared-formula cells have an empty formula text but carry a si index.
+        // Resolve and adjust the formula string from the shared formula map.
+        if (Formula = '') and (SiIndex <> '') then
+        begin
+          const SiIdx = StrToIntDef(SiIndex, -1);
+          var MasterInfo: TPair<string, string>;
+          if (SiIdx >= 0) and SharedFormulas.TryGetValue(SiIdx, MasterInfo) then
+          begin
+            // Compute row and column offsets from master cell to this dependent cell.
+            const MasterAddr = MasterInfo.Key;
+            const MasterFormula = MasterInfo.Value;
+            var MasterCol := '';
+            var MasterRowStr := '';
+            for var Ch in MasterAddr do
+              if CharInSet(Ch, ['A'..'Z', 'a'..'z']) then MasterCol := MasterCol + Ch
+              else MasterRowStr := MasterRowStr + Ch;
+            var DependentCol := '';
+            var DependentRowStr := '';
+            for var Ch in Address do
+              if CharInSet(Ch, ['A'..'Z', 'a'..'z']) then DependentCol := DependentCol + Ch
+              else DependentRowStr := DependentRowStr + Ch;
+            const RowDelta = StrToIntDef(DependentRowStr, 0) - StrToIntDef(MasterRowStr, 0);
+            const ColDelta = TExcelSheet.ColumnLetterToNumber(DependentCol) -
+                             TExcelSheet.ColumnLetterToNumber(MasterCol);
+            Formula := AdjustFormulaRefs(MasterFormula, RowDelta, ColDelta);
+          end;
+        end;
 
       var Cell: TExcelCell := nil;
 
@@ -1603,6 +1723,9 @@ begin
           Cell.FWrapText := True;
       end;
     end;
+  end;
+  finally
+    SharedFormulas.Free;
   end;
 end;
 
