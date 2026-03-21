@@ -11,8 +11,8 @@ Type
   protected
     function GetSamplesPath: string;
     function GetWordSamplePath: string;
+    function GetExcelSamplePath: string;
     function GetExcelSimpleSamplePath: string;
-    function GetExcelFormulaSamplePath: string;
   end;
 
 implementation
@@ -27,14 +27,14 @@ begin
   Result := TPath.Combine(GetSamplesPath, 'Word\simple_word.docx');
 end;
 
+function TOffice4DTests.GetExcelSamplePath: string;
+begin
+  Result := TPath.Combine(GetSamplesPath, 'Excel\excel.xlsx');
+end;
+
 function TOffice4DTests.GetExcelSimpleSamplePath: string;
 begin
   Result := TPath.Combine(GetSamplesPath, 'Excel\simple_excel.xlsx');
-end;
-
-function TOffice4DTests.GetExcelFormulaSamplePath: string;
-begin
-  Result := TPath.Combine(GetSamplesPath, 'Excel\formula_excel.xlsx');
 end;
 
 end.

@@ -136,6 +136,9 @@ type
     procedure Cell_WithFormula_ReturnsCalculatedValue;
 
     [Test]
+    procedure Cell_WithFormula_CrossSheetReference;
+
+    [Test]
     procedure RoundTrip_Formula_PreservesFormula;
 
     [Test]
@@ -392,35 +395,70 @@ end;
 
 procedure TExcelFormulaTests.Cell_WithFormula_HasFormulaIsTrue;
 begin
-  FWorkbook.LoadFromFile(GetExcelFormulaSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  Assert.IsTrue(FWorkbook.Sheets[0].Cell['C1'].HasFormula);
+  var Sheet := FWorkbook.SheetByName('Formula');
+  Assert.IsNotNull(Sheet);
+
+  Assert.IsTrue(Sheet.Cell['A3'].HasFormula,'Formula!A3');
+  Assert.IsTrue(Sheet.Cell['A10'].HasFormula,'Formula!A10');
 end;
 
 procedure TExcelFormulaTests.Cell_WithFormula_ReturnsFormulaString;
 begin
-  FWorkbook.LoadFromFile(GetExcelFormulaSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  Assert.AreEqual('A1+B1', FWorkbook.Sheets[0].Cell['C1'].Formula);
+  var Sheet := FWorkbook.SheetByName('Formula');
+  Assert.IsNotNull(Sheet);
+
+  Assert.AreEqual('A1+A2', Sheet.Cell['A3'].Formula);
 end;
 
 procedure TExcelFormulaTests.Cell_WithFormula_ReturnsCalculatedValue;
 begin
-  FWorkbook.LoadFromFile(GetExcelFormulaSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  Assert.AreEqual(Double(52), FWorkbook.Sheets[0].Cell['C1'].AsFloat);
+  var Sheet := FWorkbook.SheetByName('Formula');
+  Assert.IsNotNull(Sheet);
+
+  Assert.AreEqual(Double(1), Sheet.Cell['A3'].AsFloat,'Formula!A3');
+  Assert.AreEqual(Double(34), Sheet.Cell['A10'].AsFloat,'Formula!A10');
+end;
+
+procedure TExcelFormulaTests.Cell_WithFormula_CrossSheetReference;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+
+  var FormulaSheet := FWorkbook.SheetByName('Formula');
+  Assert.IsNotNull(FormulaSheet);
+
+  Assert.IsTrue(FormulaSheet.Cell['C1'].HasFormula,'Formula!C1');
+  Assert.IsTrue(FormulaSheet.Cell['D1'].HasFormula,'Formula!D1');
+  Assert.AreEqual('Simple!A1', FormulaSheet.Cell['C1'].Formula,'Formula!C1');
+  Assert.AreEqual('Simple!B1', FormulaSheet.Cell['D1'].Formula,'Formula!D1');
+
+  var SimpleSheet := FWorkbook.SheetByName('Simple');
+  Assert.IsNotNull(SimpleSheet);
+
+  Assert.AreEqual(SimpleSheet.Cell['A1'].AsString, FormulaSheet.Cell['C1'].AsString,'Formula!C1');
+  Assert.AreEqual(SimpleSheet.Cell['B1'].AsString, FormulaSheet.Cell['D1'].AsString,'Formula!D1');
 end;
 
 procedure TExcelFormulaTests.RoundTrip_Formula_PreservesFormula;
 begin
-  FWorkbook.LoadFromFile(GetExcelFormulaSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
   FWorkbook.SaveToFile(FTempFile);
 
   var Workbook2 := TExcelWorkbookFactory.Create;
   Workbook2.LoadFromFile(FTempFile);
 
-  Assert.IsTrue(Workbook2.Sheets[0].Cell['C1'].HasFormula);
-  Assert.AreEqual('A1+B1', Workbook2.Sheets[0].Cell['C1'].Formula);
+  var Sheet := Workbook2.SheetByName('Formula');
+  Assert.IsNotNull(Sheet);
+
+  Assert.IsTrue(Sheet.Cell['A3'].HasFormula,'Formula!A3');
+  Assert.IsTrue(Sheet.Cell['A10'].HasFormula,'Formula!A10');
+  Assert.AreEqual('A1+A2', Sheet.Cell['A3'].Formula,'Formula!A3');
+  Assert.AreEqual('A8+A9', Sheet.Cell['A10'].Formula,'Formula!A10');
 end;
 
 procedure TExcelFormulaTests.SetFormula_CreatesFormulaCell;
