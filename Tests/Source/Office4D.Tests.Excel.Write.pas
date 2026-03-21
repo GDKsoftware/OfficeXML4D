@@ -213,7 +213,7 @@ end;
 
 procedure TExcelWriteTests.RoundTrip_LoadModifySave_PreservesContent;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
   FWorkbook.Sheets[0].Cell['C1'].AsString := 'Added by test';
 
   FWorkbook.SaveToFile(FTempFile);
@@ -421,11 +421,11 @@ end;
 
 procedure TExcelWriteTests.LoadFromStream_ReadsFromStream;
 begin
-  var Stream := TFileStream.Create(GetExcelSimpleSamplePath, fmOpenRead or fmShareDenyWrite);
+  var Stream := TFileStream.Create(GetExcelSamplePath, fmOpenRead or fmShareDenyWrite);
   try
     const Workbook = TExcelWorkbookFactory.Create;
     Workbook.LoadFromStream(Stream);
-    Assert.AreEqual(1, Workbook.SheetCount, 'Should have 1 sheet');
+    Assert.AreEqual(3, Workbook.SheetCount, 'Should have 3 sheets');
   finally
     Stream.Free;
   end;

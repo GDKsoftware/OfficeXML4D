@@ -12,7 +12,6 @@ Type
     function GetSamplesPath: string;
     function GetWordSamplePath: string;
     function GetExcelSamplePath: string;
-    function GetExcelSimpleSamplePath: string;
   end;
 
 implementation
@@ -30,11 +29,6 @@ end;
 function TOffice4DTests.GetExcelSamplePath: string;
 begin
   Result := TPath.Combine(GetSamplesPath, 'Excel\excel.xlsx');
-end;
-
-function TOffice4DTests.GetExcelSimpleSamplePath: string;
-begin
-  Result := TPath.Combine(GetSamplesPath, 'Excel\simple_excel.xlsx');
 end;
 
 end.

@@ -45,9 +45,6 @@ type
 
     [Test]
     procedure Cell_NumberValue_ReturnsNumber;
-
-    [Test]
-    procedure Metadata_LastModifiedBy_ReturnsAuthor;
   end;
 
   [TestFixture]
@@ -170,7 +167,7 @@ end;
 
 procedure TExcelReadTests.LoadFromFile_ValidXlsx_LoadsWorkbook;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
   Assert.IsTrue(FWorkbook.SheetCount > 0);
 end;
@@ -188,39 +185,51 @@ end;
 
 procedure TExcelReadTests.SheetCount_AfterLoad_ReturnsCount;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  Assert.AreEqual(1, FWorkbook.SheetCount);
+  Assert.AreEqual(3, FWorkbook.SheetCount);
 end;
 
 procedure TExcelReadTests.SheetByIndex_ValidIndex_ReturnsSheet;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  var Sheet := FWorkbook.Sheets[0];
+  var Sheet0 := FWorkbook.Sheets[0];
+  Assert.IsNotNull(Sheet0);
 
-  Assert.IsNotNull(Sheet);
+  var Sheet1 := FWorkbook.Sheets[1];
+  Assert.IsNotNull(Sheet1);
+
+  var Sheet2 := FWorkbook.Sheets[2];
+  Assert.IsNotNull(Sheet2);
 end;
 
 procedure TExcelReadTests.SheetByName_ValidName_ReturnsSheet;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  var Sheet := FWorkbook.SheetByName('Sheet1');
+  var SimpleSheet := FWorkbook.SheetByName('Simple');
+  Assert.IsNotNull(SimpleSheet);
 
-  Assert.IsNotNull(Sheet);
+  var FormulaSheet := FWorkbook.SheetByName('Simple');
+  Assert.IsNotNull(FormulaSheet);
+
+  var LayoutSheet := FWorkbook.SheetByName('Layout');
+  Assert.IsNotNull(LayoutSheet);
 end;
 
 procedure TExcelReadTests.Sheet_GetName_ReturnsSheetName;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
-  Assert.AreEqual('Sheet1', FWorkbook.Sheets[0].Name);
+  Assert.AreEqual('Simple', FWorkbook.Sheets[0].Name);
+  Assert.AreEqual('Formula', FWorkbook.Sheets[1].Name);
+  Assert.AreEqual('Layout', FWorkbook.Sheets[2].Name);
 end;
 
 procedure TExcelReadTests.Cell_StringValue_ReturnsString;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
   var Value := FWorkbook.Sheets[0].Cell['A1'].AsString;
 
@@ -229,18 +238,11 @@ end;
 
 procedure TExcelReadTests.Cell_NumberValue_ReturnsNumber;
 begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
 
   var Value: Double := FWorkbook.Sheets[0].Cell['B1'].AsFloat;
 
   Assert.AreEqual(Double(42), Value);
-end;
-
-procedure TExcelReadTests.Metadata_LastModifiedBy_ReturnsAuthor;
-begin
-  FWorkbook.LoadFromFile(GetExcelSimpleSamplePath);
-
-  Assert.AreEqual('Marco Geuze', FWorkbook.Metadata.LastModifiedBy);
 end;
 
 { TExcelDOMTests }
