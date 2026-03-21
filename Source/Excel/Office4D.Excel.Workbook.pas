@@ -1637,6 +1637,36 @@ end;
 
 procedure TExcelWorkbook.ParseSheet(const Sheet: TExcelSheet; const Xml: string);
 begin
+  const ColMatches = TRegEx.Matches(Xml, '<col\s[^/]*/>', [roIgnoreCase]);
+  for var ColMatch in ColMatches do
+  begin
+    const ColXml = ColMatch.Value;
+    const WidthMatch = TRegEx.Match(ColXml, 'width="([^"]*)"', [roIgnoreCase]);
+    const CustomMatch = TRegEx.Match(ColXml, 'customWidth="1"', [roIgnoreCase]);
+    if WidthMatch.Success and CustomMatch.Success then
+    begin
+      const Width = StrToFloatDef(WidthMatch.Groups[1].Value, 0, TFormatSettings.Invariant);
+      if Width > 0 then
+      begin
+        const MinMatch = TRegEx.Match(ColXml, 'min="(\d+)"', [roIgnoreCase]);
+        const MaxMatch = TRegEx.Match(ColXml, 'max="(\d+)"', [roIgnoreCase]);
+        const ColMin = StrToIntDef(MinMatch.Groups[1].Value, 0);
+        const ColMax = StrToIntDef(MaxMatch.Groups[1].Value, 0);
+        for var ColNum := ColMin to ColMax do
+        begin
+          var ColLetters := '';
+          var N := ColNum;
+          while N > 0 do
+          begin
+            ColLetters := Chr(Ord('A') + (N - 1) mod 26) + ColLetters;
+            N := (N - 1) div 26;
+          end;
+          Sheet.SetColumnWidth(ColLetters, Width);
+        end;
+      end;
+    end;
+  end;
+
   const RowMatches = TRegEx.Matches(Xml, '<row\s[^>]*>', [roIgnoreCase]);
   for var RowMatch in RowMatches do
   begin
