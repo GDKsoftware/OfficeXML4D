@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.IOUtils,
+  System.Generics.Collections,
   DUnitX.TestFramework,
   Office4D.Tests.Samples,
   Office4D.Excel;
@@ -146,6 +147,36 @@ type
 
     [Test]
     procedure SetFormula_RoundTrip_PreservesFormula;
+  end;
+
+  [TestFixture]
+  TExcelLayoutTests = class(TOffice4DTests)
+  private
+    Const
+      Yellow = $FFFF00;  // RGB(255, 255, 0)   - fill: FFFFFF00
+      Green  = $92D050;  // RGB(146, 208,  80) - fill: FF92D050
+    Var
+      FWorkbook: IExcelWorkbook;
+      FTempFile: string;
+
+  public
+    [Setup]
+    procedure Setup;
+
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure Reads_MergedCell;
+
+    [Test]
+    procedure Preserve_MergedCell;
+
+    [Test]
+    procedure Reads_CellBackgroundColor;
+
+    [Test]
+    procedure Preserve_CellBackgroundColor;
   end;
 
 implementation
@@ -498,10 +529,82 @@ begin
   Assert.AreEqual(Double(75), Workbook2.Sheets[0].Cell['C1'].AsFloat);
 end;
 
+{ TExcelLayoutTests }
+
+procedure TExcelLayoutTests.Setup;
+begin
+  FWorkbook := TExcelWorkbookFactory.Create;
+  FTempFile := TPath.Combine(TPath.GetTempPath, 'test_formula_' + TGUID.NewGuid.ToString + '.xlsx');
+end;
+
+procedure TExcelLayoutTests.TearDown;
+begin
+  FWorkbook := nil;
+  if TFile.Exists(FTempFile) then
+    TFile.Delete(FTempFile);
+end;
+
+procedure TExcelLayoutTests.Reads_MergedCell;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+
+  var Sheet := FWorkBook.SheetByName('Layout');
+  Assert.IsNotNull(Sheet);
+
+  var Ranges := Sheet.GetMergedRanges;
+  Assert.AreEqual(2, Integer(Length(Ranges)), 'Merged range count');
+  Assert.IsTrue(TArray.Contains<string>(Ranges, 'B1:C2'), 'B1:C2');
+  Assert.IsTrue(TArray.Contains<string>(Ranges, 'A2:A4'), 'A2:A4');
+end;
+
+procedure TExcelLayoutTests.Preserve_MergedCell;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+  FWorkBook.SaveToFile(FTempFile);
+
+  var Workbook2 := TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+
+  var Sheet := Workbook2.SheetByName('Layout');
+  Assert.IsNotNull(Sheet);
+
+  var Ranges := Sheet.GetMergedRanges;
+  Assert.AreEqual(2, Integer(Length(Ranges)), 'Merged range count');
+  Assert.IsTrue(TArray.Contains<string>(Ranges, 'B1:C2'), 'B1:C2');
+  Assert.IsTrue(TArray.Contains<string>(Ranges, 'A2:A4'), 'A2:A4');
+end;
+
+procedure TExcelLayoutTests.Reads_CellBackgroundColor;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+
+  var Sheet := FWorkBook.SheetByName('Layout');
+  Assert.IsNotNull(Sheet);
+
+  Assert.AreEqual(Green,  Sheet.Cell['B1'].BackgroundColor,'Layout!B1');
+  Assert.AreEqual(Yellow, Sheet.Cell['A2'].BackgroundColor,'Layout!A2');
+end;
+
+procedure TExcelLayoutTests.Preserve_CellBackgroundColor;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+  FWorkBook.SaveToFile(FTempFile);
+
+  var Workbook2 := TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+
+  var Sheet := Workbook2.SheetByName('Layout');
+  Assert.IsNotNull(Sheet);
+
+  Assert.AreEqual(Green,  Sheet.Cell['B1'].BackgroundColor,'Layout!B1');
+  Assert.AreEqual(Yellow, Sheet.Cell['A2'].BackgroundColor,'Layout!A2');
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TExcelReadTests);
   TDUnitX.RegisterTestFixture(TExcelDOMTests);
   TDUnitX.RegisterTestFixture(TExcelAdvancedTests);
   TDUnitX.RegisterTestFixture(TExcelFormulaTests);
+  TDUnitX.RegisterTestFixture(TExcelLayoutTests);
 
 end.
