@@ -1621,16 +1621,17 @@ begin
             TPair<string, string>.Create(SfMatch.Groups[1].Value, SfMatch.Groups[3].Value));
       end;
 
-    // Match each cell element.
+    // Match each cell element. Self-closing <c r=".."/> empty cells are excluded via
+    // (?<!/)> so they cannot steal <v> values from adjacent cells. (?:(?!</c>).)*
+    // prevents crossing cell boundaries before reaching <v>.
     // The <f> element may have attributes (e.g. t="shared" si="0"), so we use
     // <f[^>]*> for the opening tag. Self-closing <f.../> cells have an empty formula
     // text; the si index is extracted separately for shared-formula dependent-cell resolution.
     // Group layout: 1=address, 2=style, 3=cell-type, 4=formula-text, 5=si-index, 6=value.
     const CellMatches = TRegEx.Matches(Xml,
-      '<c\s+r="([A-Z]+\d+)"(?:\s+s="(\d+)")?(?:\s+t="([^"]*)")?[^>]*>' +
+      '<c\s+r="([A-Z]+\d+)"(?:\s+s="(\d+)")?(?:\s+t="([^"]*)")?[^>]*(?<!/)>' +
       '(?:<f(?:\s+[^>]*)?>([^<]*)</f>|<f(?:\s+[^>]*)?\bsi="(\d+)"[^/]*/>)?' +
-      '.*?<v>([^<]*)</v>.*?</c>',
-      [roIgnoreCase, roSingleLine]);
+      '(?:(?!</c>).)*<v>([^<]*)</v>.*?</c>',[roIgnoreCase, roSingleLine]);
     for var Match in CellMatches do
     begin
       if Match.Groups.Count > 6 then
@@ -1670,63 +1671,68 @@ begin
           end;
         end;
 
-      var Cell: TExcelCell := nil;
+        var Cell: TExcelCell := nil;
 
-      if Formula <> '' then
-      begin
-        Sheet.SetCellFormula(Address, Formula, Value);
-        Cell := Sheet.GetCell(Address) as TExcelCell;
-      end
-      else if CellType = 's' then
-      begin
-        const StrIndex = StrToIntDef(Value, -1);
-        if (StrIndex >= 0) and (StrIndex < FSharedStrings.Count) then
+        if Formula <> '' then
         begin
-          Sheet.SetCellValue(Address, FSharedStrings[StrIndex], True);
+          Sheet.SetCellFormula(Address, Formula, Value);
+          Cell := Sheet.GetCell(Address) as TExcelCell;
+        end
+        else if CellType = 's' then
+        begin
+          const StrIndex = StrToIntDef(Value, -1);
+          if (StrIndex >= 0) and (StrIndex < FSharedStrings.Count) then
+          begin
+            Sheet.SetCellValue(Address, FSharedStrings[StrIndex], True);
+            Cell := Sheet.GetCell(Address) as TExcelCell;
+          end;
+        end
+        else if CellType = 'b' then
+        begin
+          Sheet.SetBooleanValue(Address, Value = '1');
+          Cell := Sheet.GetCell(Address) as TExcelCell;
+        end
+        else
+        begin
+          Sheet.SetCellValue(Address, Value, False);
           Cell := Sheet.GetCell(Address) as TExcelCell;
         end;
-      end
-      else if CellType = 'b' then
-      begin
-        Sheet.SetBooleanValue(Address, Value = '1');
-        Cell := Sheet.GetCell(Address) as TExcelCell;
-      end
-      else
-      begin
-        Sheet.SetCellValue(Address, Value, False);
-        Cell := Sheet.GetCell(Address) as TExcelCell;
-      end;
 
-      if (Cell <> nil) and (StyleIdx > 0) then
-      begin
-        if (StyleIdx < FStyleBold.Count) and (FStyleBold[StyleIdx]) then
-          Cell.FBold := True;
-        if (StyleIdx < FStyleItalic.Count) and (FStyleItalic[StyleIdx]) then
-          Cell.FItalic := True;
-        if (StyleIdx < FStyleUnderline.Count) and (FStyleUnderline[StyleIdx]) then
-          Cell.FUnderline := True;
-        if (StyleIdx < FStyleFontName.Count) and (FStyleFontName[StyleIdx] <> '') then
-          Cell.FFontName := FStyleFontName[StyleIdx];
-        if (StyleIdx < FStyleFontSize.Count) and (FStyleFontSize[StyleIdx] <> 0) then
-          Cell.FFontSize := FStyleFontSize[StyleIdx];
-        if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
-          Cell.FBackgroundColor := FStyleColors[StyleIdx];
-        if (StyleIdx < FStyleBorderStyle.Count) and (FStyleBorderStyle[StyleIdx] <> TExcelBorderStyle.None) then
-          Cell.FBorderStyle := FStyleBorderStyle[StyleIdx];
-        if (StyleIdx < FStyleBorderColor.Count) and (FStyleBorderColor[StyleIdx] <> 0) then
-          Cell.FBorderColor := FStyleBorderColor[StyleIdx];
-        if (StyleIdx < FStyleHAlign.Count) and (FStyleHAlign[StyleIdx] <> TExcelHAlign.None) then
-          Cell.FHAlign := FStyleHAlign[StyleIdx];
-        if (StyleIdx < FStyleVAlign.Count) and (FStyleVAlign[StyleIdx] <> TExcelVAlign.None) then
-          Cell.FVAlign := FStyleVAlign[StyleIdx];
-        if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
-          Cell.FWrapText := True;
+        if (Cell <> nil) and (StyleIdx > 0) then
+        begin
+          if (StyleIdx < FStyleBold.Count) and (FStyleBold[StyleIdx]) then
+            Cell.FBold := True;
+          if (StyleIdx < FStyleItalic.Count) and (FStyleItalic[StyleIdx]) then
+            Cell.FItalic := True;
+          if (StyleIdx < FStyleUnderline.Count) and (FStyleUnderline[StyleIdx]) then
+            Cell.FUnderline := True;
+          if (StyleIdx < FStyleFontName.Count) and (FStyleFontName[StyleIdx] <> '') then
+            Cell.FFontName := FStyleFontName[StyleIdx];
+          if (StyleIdx < FStyleFontSize.Count) and (FStyleFontSize[StyleIdx] <> 0) then
+            Cell.FFontSize := FStyleFontSize[StyleIdx];
+          if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
+            Cell.FBackgroundColor := FStyleColors[StyleIdx];
+          if (StyleIdx < FStyleBorderStyle.Count) and (FStyleBorderStyle[StyleIdx] <> TExcelBorderStyle.None) then
+            Cell.FBorderStyle := FStyleBorderStyle[StyleIdx];
+          if (StyleIdx < FStyleBorderColor.Count) and (FStyleBorderColor[StyleIdx] <> 0) then
+            Cell.FBorderColor := FStyleBorderColor[StyleIdx];
+          if (StyleIdx < FStyleHAlign.Count) and (FStyleHAlign[StyleIdx] <> TExcelHAlign.None) then
+            Cell.FHAlign := FStyleHAlign[StyleIdx];
+          if (StyleIdx < FStyleVAlign.Count) and (FStyleVAlign[StyleIdx] <> TExcelVAlign.None) then
+            Cell.FVAlign := FStyleVAlign[StyleIdx];
+          if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
+            Cell.FWrapText := True;
+        end;
       end;
     end;
-  end;
   finally
     SharedFormulas.Free;
   end;
+
+  const MergeMatches = TRegEx.Matches(Xml, '<mergeCell\s+ref="([^"]+)"', [roIgnoreCase]);
+  for var MergeMatch in MergeMatches do
+    if MergeMatch.Groups.Count > 1 then
+      Sheet.MergeCells(MergeMatch.Groups[1].Value);
 end;
 
 function TExcelWorkbook.GetSheetCount: Integer;
