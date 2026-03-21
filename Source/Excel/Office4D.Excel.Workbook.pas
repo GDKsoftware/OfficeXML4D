@@ -183,6 +183,19 @@ uses
   Office4D.Types;
 
 const
+  // Default OOXML indexed colour palette (indices 0-63). Indices 0-7 are redundant
+  // copies of 8-15. Only non-zero colours are listed; everything else maps to 0.
+  OoxmlIndexedColors: array[0..63] of Cardinal = (
+    $000000, $FFFFFF, $FF0000, $00FF00, $0000FF, $FFFF00, $FF00FF, $00FFFF,  // 0-7
+    $000000, $FFFFFF, $FF0000, $00FF00, $0000FF, $FFFF00, $FF00FF, $00FFFF,  // 8-15
+    $800000, $008000, $000080, $808000, $800080, $008080, $C0C0C0, $808080,  // 16-23
+    $9999FF, $993366, $FFFFCC, $CCFFFF, $660066, $FF8080, $0066CC, $CCCCFF,  // 24-31
+    $000080, $FF00FF, $FFFF00, $00FFFF, $800080, $800000, $008080, $0000FF,  // 32-39
+    $00CCFF, $CCFFFF, $CCFFCC, $FFFF99, $99CCFF, $FF99CC, $CC99FF, $FFCC99,  // 40-47
+    $3366FF, $33CCCC, $99CC00, $FFCC00, $FF9900, $FF6600, $666699, $969696,  // 48-55
+    $003366, $339966, $003300, $333300, $993300, $993366, $333399, $333333   // 56-63
+  );
+
   ExcelDateOffset = 25569;
   XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   RelationshipsNs = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -947,6 +960,11 @@ begin
             end
             else
             case Cell.CellType of
+              TCellType.Empty:
+                begin
+                  if StyleIdx > 0 then
+                    SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + '/>');
+                end;
               TCellType.StringValue:
                 begin
                   const StrIdx = GetSharedStringIndex(SharedStrings, Cell.GetAsString);
@@ -1394,15 +1412,52 @@ begin
         FontsSize.Add(0);
     end;
 
+    // Build the indexed colour palette. Start with the OOXML default palette.
+    // If the styles XML contains a custom <indexedColors> block it replaces
+    // the defaults entirely, so we rebuild the list from those entries instead.
+    var IndexedPalette := TList<Cardinal>.Create;
+    try
+      for var I := 0 to High(OoxmlIndexedColors) do
+        IndexedPalette.Add(OoxmlIndexedColors[I]);
+
+      const CustomPaletteMatch = TRegEx.Match(Xml,
+        '<indexedColors>(.*?)</indexedColors>', [roIgnoreCase, roSingleLine]);
+      if CustomPaletteMatch.Success then
+      begin
+        const RgbMatches = TRegEx.Matches(CustomPaletteMatch.Groups[1].Value,
+          '<rgbColor\s+rgb="00([0-9A-Fa-f]{6})"', [roIgnoreCase]);
+        if RgbMatches.Count > 0 then
+        begin
+          IndexedPalette.Clear;
+          for var RgbMatch in RgbMatches do
+            IndexedPalette.Add(StrToInt64Def('$' + RgbMatch.Groups[1].Value, 0));
+        end;
+      end;
+
     const FillMatches = TRegEx.Matches(Xml, '<fill>(.*?)</fill>', [roIgnoreCase, roSingleLine]);
     for var Match in FillMatches do
     begin
       const FillXml = Match.Groups[1].Value;
-      const ColorMatch = TRegEx.Match(FillXml, 'fgColor\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
-      if ColorMatch.Success then
-        Fills.Add(StrToInt64Def('$' + ColorMatch.Groups[1].Value, 0))
+      const RgbMatch = TRegEx.Match(FillXml, 'fgColor\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
+      if RgbMatch.Success then
+        Fills.Add(StrToInt64Def('$' + RgbMatch.Groups[1].Value, 0))
       else
-        Fills.Add(0);
+      begin
+        const IdxMatch = TRegEx.Match(FillXml, 'fgColor\s+indexed="(\d+)"', [roIgnoreCase]);
+        if IdxMatch.Success then
+        begin
+          const Idx = StrToIntDef(IdxMatch.Groups[1].Value, -1);
+          if (Idx >= 0) and (Idx < IndexedPalette.Count) then
+            Fills.Add(IndexedPalette[Idx])
+          else
+            Fills.Add(0);
+        end
+        else
+          Fills.Add(0);
+      end;
+    end;
+    finally
+      IndexedPalette.Free;
     end;
 
     const BorderMatches = TRegEx.Matches(Xml, '<border\s*/>', [roIgnoreCase]);
@@ -1728,6 +1783,44 @@ begin
   finally
     SharedFormulas.Free;
   end;
+
+  // Apply styles to self-closing empty cells (<c r="X" s="N"/>).
+  // These have no <v> element so the main cell loop skips them, but they may
+  // carry a meaningful style (e.g. background colour) that must be preserved.
+  const EmptyCellMatches = TRegEx.Matches(Xml,
+    '<c\s+r="([A-Z]+\d+)"\s+s="(\d+)"[^>]*/>', [roIgnoreCase]);
+  for var Match in EmptyCellMatches do
+    if Match.Groups.Count > 2 then
+    begin
+      const Address  = Match.Groups[1].Value;
+      const StyleIdx = StrToIntDef(Match.Groups[2].Value, 0);
+      if StyleIdx > 0 then
+      begin
+        var Cell := Sheet.GetCell(Address) as TExcelCell;
+        if (StyleIdx < FStyleBold.Count) and (FStyleBold[StyleIdx]) then
+          Cell.FBold := True;
+        if (StyleIdx < FStyleItalic.Count) and (FStyleItalic[StyleIdx]) then
+          Cell.FItalic := True;
+        if (StyleIdx < FStyleUnderline.Count) and (FStyleUnderline[StyleIdx]) then
+          Cell.FUnderline := True;
+        if (StyleIdx < FStyleFontName.Count) and (FStyleFontName[StyleIdx] <> '') then
+          Cell.FFontName := FStyleFontName[StyleIdx];
+        if (StyleIdx < FStyleFontSize.Count) and (FStyleFontSize[StyleIdx] <> 0) then
+          Cell.FFontSize := FStyleFontSize[StyleIdx];
+        if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
+          Cell.FBackgroundColor := FStyleColors[StyleIdx];
+        if (StyleIdx < FStyleBorderStyle.Count) and (FStyleBorderStyle[StyleIdx] <> TExcelBorderStyle.None) then
+          Cell.FBorderStyle := FStyleBorderStyle[StyleIdx];
+        if (StyleIdx < FStyleBorderColor.Count) and (FStyleBorderColor[StyleIdx] <> 0) then
+          Cell.FBorderColor := FStyleBorderColor[StyleIdx];
+        if (StyleIdx < FStyleHAlign.Count) and (FStyleHAlign[StyleIdx] <> TExcelHAlign.None) then
+          Cell.FHAlign := FStyleHAlign[StyleIdx];
+        if (StyleIdx < FStyleVAlign.Count) and (FStyleVAlign[StyleIdx] <> TExcelVAlign.None) then
+          Cell.FVAlign := FStyleVAlign[StyleIdx];
+        if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
+          Cell.FWrapText := True;
+      end;
+    end;
 
   const MergeMatches = TRegEx.Matches(Xml, '<mergeCell\s+ref="([^"]+)"', [roIgnoreCase]);
   for var MergeMatch in MergeMatches do
