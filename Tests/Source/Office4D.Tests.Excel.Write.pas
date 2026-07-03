@@ -170,6 +170,18 @@ type
 
     [Test]
     procedure RoundTrip_EmptyStringCell_PreservesAdjacentValues;
+
+    [Test]
+    procedure SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
+
+    [Test]
+    procedure SaveToFile_DateTimeCellWithTime_UsesLocaleAwareDateTimeFormat;
+
+    [Test]
+    procedure SaveToFile_DateTimeCellWithNumberFormat_UsesCustomFormat;
+
+    [Test]
+    procedure RoundTrip_DateTimeWithTime_PreservesValue;
   end;
 
 implementation
@@ -404,8 +416,8 @@ begin
     Assert.IsTrue(Package.PartExists('xl/styles.xml'), 'Should contain xl/styles.xml');
 
     const StylesXml = Package.GetPartContent('xl/styles.xml');
-    Assert.IsTrue(Pos('numFmt', StylesXml) > 0, 'Should contain number format');
-    Assert.IsTrue(Pos('yyyy-mm-dd', StylesXml) > 0, 'Should contain date format code');
+    Assert.IsTrue(Pos('<styleSheet', StylesXml) > 0, 'Should contain styleSheet element');
+    Assert.IsTrue(Pos('<cellXfs', StylesXml) > 0, 'Should contain cellXfs element');
   finally
     Package.Free;
   end;
@@ -1047,6 +1059,73 @@ begin
   Assert.AreEqual('Left', Workbook2.Sheets[0].Cell['A1'].AsString);
   Assert.AreEqual('', Workbook2.Sheets[0].Cell['B1'].AsString);
   Assert.AreEqual('Right', Workbook2.Sheets[0].Cell['C1'].AsString);
+end;
+
+procedure TExcelWriteTests.SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsDateTime := EncodeDate(2024, 6, 15);
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const StylesXml = Package.GetPartContent('xl/styles.xml');
+    Assert.IsTrue(Pos('numFmtId="14"', StylesXml) > 0, 'Date cell should use built-in locale-aware short date format 14');
+    Assert.IsFalse(Pos('yyyy-mm-dd', StylesXml) > 0, 'Should not contain a hardcoded date format code');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.SaveToFile_DateTimeCellWithTime_UsesLocaleAwareDateTimeFormat;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsDateTime := EncodeDate(2024, 6, 15) + EncodeTime(14, 30, 0, 0);
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const StylesXml = Package.GetPartContent('xl/styles.xml');
+    Assert.IsTrue(Pos('numFmtId="22"', StylesXml) > 0, 'Date cell with time should use built-in locale-aware date/time format 22');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.SaveToFile_DateTimeCellWithNumberFormat_UsesCustomFormat;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsDateTime := EncodeDate(2024, 6, 15) + EncodeTime(14, 30, 0, 0);
+  Sheet.Cell['A1'].NumberFormat := 'dd.mm.yyyy hh:mm';
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const StylesXml = Package.GetPartContent('xl/styles.xml');
+    Assert.IsTrue(Pos('formatCode="dd.mm.yyyy hh:mm"', StylesXml) > 0, 'Custom number format should be written');
+    Assert.IsTrue(Pos('numFmtId="165"', StylesXml) > 0, 'Custom format should be referenced by the cell style');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.RoundTrip_DateTimeWithTime_PreservesValue;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  const TestValue = EncodeDate(2024, 6, 15) + EncodeTime(14, 30, 45, 0);
+  Sheet.Cell['A1'].AsDateTime := TestValue;
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  Assert.AreEqual(Double(TestValue), Double(Workbook2.Sheets[0].Cell['A1'].AsDateTime), 1E-8);
 end;
 
 initialization

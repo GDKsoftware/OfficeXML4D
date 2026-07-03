@@ -1047,10 +1047,17 @@ begin
   var FontSizeStr := '';
   if Cell.FFontSize <> 0 then
     FontSizeStr := FormatFloat('0.##', Cell.FFontSize, TFormatSettings.Invariant);
+  // 0 = no date format, 1 = date only (built-in numFmtId 14), 2 = date with time (built-in numFmtId 22)
+  var DateFlag := 0;
+  if Cell.CellType = TCellType.DateTime then
+    if Frac(Cell.FDateTimeValue) <> 0 then
+      DateFlag := 2
+    else
+      DateFlag := 1;
   Result := Format('%d|%d|%d|%s|%d|%d|%s|%s|%d|%d|%d|%d|%d', [
     Ord(Cell.FBold),
     Cell.FBackgroundColor,
-    Ord(Cell.CellType = TCellType.DateTime),
+    DateFlag,
     Cell.FNumberFormat,
     Ord(Cell.FItalic),
     Ord(Cell.FUnderline),
@@ -1171,12 +1178,15 @@ begin
     SB.Append(XmlDeclaration);
     SB.Append('<styleSheet xmlns="' + SpreadsheetNs + '">');
 
-    const NumFmtCount = 1 + NumFormats.Count;
-    SB.Append('<numFmts count="' + IntToStr(NumFmtCount) + '">');
-    SB.Append('<numFmt numFmtId="164" formatCode="yyyy-mm-dd"/>');
-    for var I := 0 to NumFormats.Count - 1 do
-      SB.Append('<numFmt numFmtId="' + IntToStr(165 + I) + '" formatCode="' + EscapeXml(NumFormats[I]) + '"/>');
-    SB.Append('</numFmts>');
+    // Date cells use the built-in locale-aware formats (14 = short date, 22 = date + time),
+    // so only user-supplied custom formats need numFmt entries. Custom ids start at 165.
+    if NumFormats.Count > 0 then
+    begin
+      SB.Append('<numFmts count="' + IntToStr(NumFormats.Count) + '">');
+      for var I := 0 to NumFormats.Count - 1 do
+        SB.Append('<numFmt numFmtId="' + IntToStr(165 + I) + '" formatCode="' + EscapeXml(NumFormats[I]) + '"/>');
+      SB.Append('</numFmts>');
+    end;
 
     const FontCount = 1 + FontKeys.Count;
     SB.Append('<fonts count="' + IntToStr(FontCount) + '">');
@@ -1256,7 +1266,7 @@ begin
         const Parts = StylePair.Key.Split(['|']);
         const IsBold = Parts[0] = '1';
         const BgColor = StrToIntDef(Parts[1], 0);
-        const IsDate = Parts[2] = '1';
+        const DateFlag = StrToIntDef(Parts[2], 0);
         const CustomFormat = Parts[3];
         const IsItalic = Parts[4] = '1';
         const IsUnderline = Parts[5] = '1';
@@ -1283,11 +1293,15 @@ begin
         if BorderKey <> '0|0' then
           BorderId := 1 + BorderKeys.IndexOf(BorderKey);
 
+        // A user-supplied NumberFormat overrides the default date format, so custom
+        // formats also work on date cells.
         var NumFmtId := 0;
-        if IsDate then
-          NumFmtId := 164
-        else if CustomFormat <> '' then
-          NumFmtId := 165 + NumFormats.IndexOf(CustomFormat);
+        if CustomFormat <> '' then
+          NumFmtId := 165 + NumFormats.IndexOf(CustomFormat)
+        else if DateFlag = 1 then
+          NumFmtId := 14
+        else if DateFlag = 2 then
+          NumFmtId := 22;
 
         var ApplyAttrs := '';
         if NumFmtId <> 0 then ApplyAttrs := ApplyAttrs + ' applyNumberFormat="1"';
