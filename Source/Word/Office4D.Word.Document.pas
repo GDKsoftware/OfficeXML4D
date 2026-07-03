@@ -1075,7 +1075,7 @@ begin
               Body := Body + '<w:color w:val="' + EscapeXml(Run.FontColor) + '"/>';
             Body := Body + '</w:rPr>';
           end;
-          Body := Body + '<w:t>' + EscapeXml(RunText) + '</w:t></w:r>';
+          Body := Body + '<w:t xml:space="preserve">' + EscapeXml(RunText) + '</w:t></w:r>';
 
           if HasHyperlink then
             Body := Body + '</w:hyperlink>';

@@ -46,6 +46,7 @@ begin
   Run := Para.AddRun('GitHub Repository');
   Run.Hyperlink := 'https://github.com/example/office4d';
   Run.Underline := True;
+  Para.AddRun(' ');
   Para.AddRun(' for more information.');
 
   // Empty line
@@ -382,10 +383,13 @@ begin
   Sheet.Cell['A3'].AsString := 'Region';
   Sheet.Cell['A3'].Bold := True;
   Sheet.Cell['B3'].AsString := 'Q1';
+  Sheet.Cell['B3'].HAlign := TExcelHAlign.Center;
   Sheet.Cell['B3'].Bold := True;
   Sheet.Cell['C3'].AsString := 'Q2';
+  Sheet.Cell['C3'].HAlign := TExcelHAlign.Center;
   Sheet.Cell['C3'].Bold := True;
   Sheet.Cell['D3'].AsString := 'Total';
+  Sheet.Cell['D3'].HAlign := TExcelHAlign.Center;
   Sheet.Cell['D3'].Bold := True;
 
   // Data

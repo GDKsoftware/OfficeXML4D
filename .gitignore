@@ -60,3 +60,4 @@ build.bat
 *.bat
 .claude/
 nul
+Examples/Office4DDemo.dsv
