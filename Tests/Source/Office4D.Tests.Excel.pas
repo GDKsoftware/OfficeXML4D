@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.IOUtils,
+  System.Zip,
   System.Generics.Collections,
   DUnitX.TestFramework,
   Office4D.Tests.Samples,
@@ -109,6 +110,26 @@ type
 
     [Test]
     procedure Cell_Formula_WhenNoFormula_ReturnsEmpty;
+  end;
+
+  [TestFixture]
+  TExcelSharedStringsTests = class
+  private
+    FTempFile: string;
+
+    procedure WriteWorkbookWithSharedStrings(const SharedStringsXml: string);
+  public
+    [Setup]
+    procedure Setup;
+
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure Load_EmptySharedStringEntry_KeepsIndexAlignment;
+
+    [Test]
+    procedure Load_RichTextSharedString_ConcatenatesRuns;
   end;
 
   [TestFixture]
@@ -667,11 +688,90 @@ begin
   Assert.AreEqual(Double(30), Sheet.GetColumnWidth('C'), 'Layout col C width');
 end;
 
+{ TExcelSharedStringsTests }
+
+procedure TExcelSharedStringsTests.Setup;
+begin
+  FTempFile := TPath.Combine(TPath.GetTempPath, 'test_sst_' + TGUID.NewGuid.ToString + '.xlsx');
+end;
+
+procedure TExcelSharedStringsTests.TearDown;
+begin
+  if TFile.Exists(FTempFile) then
+    TFile.Delete(FTempFile);
+end;
+
+procedure TExcelSharedStringsTests.WriteWorkbookWithSharedStrings(const SharedStringsXml: string);
+const
+  XmlDecl = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  SpreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+begin
+  const WorkbookXml = XmlDecl +
+    '<workbook xmlns="' + SpreadsheetNs + '"><sheets><sheet name="Sheet1" sheetId="1"/></sheets></workbook>';
+  const SheetXml = XmlDecl +
+    '<worksheet xmlns="' + SpreadsheetNs + '"><sheetData><row r="1">' +
+    '<c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c>' +
+    '<c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c>' +
+    '</row></sheetData></worksheet>';
+
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(FTempFile, zmWrite);
+    Zip.Add(TEncoding.UTF8.GetBytes(WorkbookXml), 'xl/workbook.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(XmlDecl + SharedStringsXml), 'xl/sharedStrings.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(SheetXml), 'xl/worksheets/sheet1.xml');
+    Zip.Close;
+  finally
+    Zip.Free;
+  end;
+end;
+
+procedure TExcelSharedStringsTests.Load_EmptySharedStringEntry_KeepsIndexAlignment;
+begin
+  WriteWorkbookWithSharedStrings(
+    '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">' +
+    '<si><t>First</t></si>' +
+    '<si><t/></si>' +
+    '<si><t>Third</t></si>' +
+    '<si><t xml:space="preserve">Fourth</t></si>' +
+    '</sst>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  const Sheet = Workbook.Sheets[0];
+  Assert.AreEqual('First', Sheet.Cell['A1'].AsString, 'A1 should map to entry 0');
+  Assert.AreEqual('', Sheet.Cell['B1'].AsString, 'B1 should map to the empty entry 1');
+  Assert.AreEqual('Third', Sheet.Cell['C1'].AsString, 'C1 should map to entry 2');
+  Assert.AreEqual('Fourth', Sheet.Cell['D1'].AsString, 'D1 should map to entry 3');
+end;
+
+procedure TExcelSharedStringsTests.Load_RichTextSharedString_ConcatenatesRuns;
+begin
+  WriteWorkbookWithSharedStrings(
+    '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">' +
+    '<si><t>Plain</t></si>' +
+    '<si><r><rPr><b/></rPr><t>Rich</t></r><r><t xml:space="preserve"> Text</t></r></si>' +
+    '<si><t>After</t></si>' +
+    '<si><t>Last</t></si>' +
+    '</sst>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  const Sheet = Workbook.Sheets[0];
+  Assert.AreEqual('Plain', Sheet.Cell['A1'].AsString, 'A1 should map to entry 0');
+  Assert.AreEqual('Rich Text', Sheet.Cell['B1'].AsString, 'B1 should concatenate all rich text runs');
+  Assert.AreEqual('After', Sheet.Cell['C1'].AsString, 'C1 should map to entry 2');
+  Assert.AreEqual('Last', Sheet.Cell['D1'].AsString, 'D1 should map to entry 3');
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TExcelReadTests);
   TDUnitX.RegisterTestFixture(TExcelDOMTests);
   TDUnitX.RegisterTestFixture(TExcelAdvancedTests);
   TDUnitX.RegisterTestFixture(TExcelFormulaTests);
   TDUnitX.RegisterTestFixture(TExcelLayoutTests);
+  TDUnitX.RegisterTestFixture(TExcelSharedStringsTests);
 
 end.

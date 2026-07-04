@@ -1357,10 +1357,22 @@ end;
 procedure TExcelWorkbook.ParseSharedStrings(const Xml: string);
 begin
   FSharedStrings.Clear;
-  const Matches = TRegEx.Matches(Xml, '<si>.*?<t[^>]*>([^<]*)</t>.*?</si>', [roIgnoreCase, roSingleLine]);
-  for var Match in Matches do
-    if Match.Groups.Count > 1 then
-      FSharedStrings.Add(Match.Groups[1].Value);
+  // Every <si> occupies exactly one index slot, including empty entries (<si><t/></si>)
+  // and rich-text entries (<si><r><t>..</t></r><r><t>..</t></r></si>). Matching across
+  // si boundaries shifts all subsequent indices, mapping cells to the wrong strings.
+  const SiMatches = TRegEx.Matches(Xml, '<si>(.*?)</si>', [roIgnoreCase, roSingleLine]);
+  for var SiMatch in SiMatches do
+    if SiMatch.Groups.Count > 1 then
+    begin
+      // Phonetic guide blocks carry their own <t> elements that are not part of the text.
+      const SiXml = TRegEx.Replace(SiMatch.Groups[1].Value, '<rPh\s[^>]*>.*?</rPh>', '', [roIgnoreCase, roSingleLine]);
+      var Text := '';
+      const TextMatches = TRegEx.Matches(SiXml, '<t(?:\s[^>]*)?>([^<]*)</t>', [roIgnoreCase]);
+      for var TextMatch in TextMatches do
+        if TextMatch.Groups.Count > 1 then
+          Text := Text + TextMatch.Groups[1].Value;
+      FSharedStrings.Add(Text);
+    end;
 end;
 
 procedure TExcelWorkbook.ParseStyles(const Xml: string);
