@@ -1,6 +1,6 @@
 # Office4D
 
-Pure Delphi library for reading and writing Microsoft Office Open XML documents (.docx, .xlsx).
+Pure Delphi library for reading and writing Microsoft Office Open XML documents (.docx, .xlsx, .pptx).
 
 ## Features
 
@@ -16,7 +16,7 @@ Pure Delphi library for reading and writing Microsoft Office Open XML documents 
 |--------|-----------|------|-------|
 | Word | .docx | Yes | Yes |
 | Excel | .xlsx | Yes | Yes |
-| PowerPoint | .pptx | Planned | Planned |
+| PowerPoint | .pptx | Text extraction | Yes (basic) |
 
 ## Installation
 
@@ -247,6 +247,7 @@ Source/
   Common/      - Metadata, shared interfaces
   Word/        - Word document implementation
   Excel/       - Excel workbook implementation
+  PowerPoint/  - PowerPoint presentation implementation
 Tests/
   Source/      - DUnitX test suite
   Samples/     - Sample documents for testing
@@ -277,6 +278,25 @@ Examples/      - Demo application
 - Merged cells
 - Shared strings optimization
 - Metadata (author, title, dates)
+
+## PowerPoint Features
+
+- Creating presentations with multiple slides
+- Slide titles and body text with paragraphs
+- Bullet lists with indent levels
+- Run formatting: bold, italic, underline, font name, size, color
+- Reading text back from presentations (title, paragraphs, formatting)
+- Metadata (author, title, dates)
+
+```pascal
+uses Office4D.PowerPoint;
+
+var Presentation := TPowerPointPresentationFactory.CreatePresentation;
+var Slide := Presentation.AddSlide('Quarterly Report');
+var Bullet := Slide.AddParagraph('Revenue up 12%');
+Bullet.Bullet := True;
+Presentation.SaveToFile('report.pptx');
+```
 
 ## Requirements
 

@@ -18,6 +18,8 @@ uses
   Office4D.Word.Document in '..\..\Source\Word\Office4D.Word.Document.pas',
   Office4D.Excel in '..\..\Source\Excel\Office4D.Excel.pas',
   Office4D.Excel.Workbook in '..\..\Source\Excel\Office4D.Excel.Workbook.pas',
+  Office4D.PowerPoint in '..\..\Source\PowerPoint\Office4D.PowerPoint.pas',
+  Office4D.PowerPoint.Presentation in '..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas',
   Office4D.Tests.Samples in 'Office4D.Tests.Samples.pas',
   Office4D.Tests.Package in 'Office4D.Tests.Package.pas',
   Office4D.Tests.Relationships in 'Office4D.Tests.Relationships.pas',
@@ -25,7 +27,8 @@ uses
   Office4D.Tests.Word in 'Office4D.Tests.Word.pas',
   Office4D.Tests.Word.Write in 'Office4D.Tests.Word.Write.pas',
   Office4D.Tests.Excel in 'Office4D.Tests.Excel.pas',
-  Office4D.Tests.Excel.Write in 'Office4D.Tests.Excel.Write.pas';
+  Office4D.Tests.Excel.Write in 'Office4D.Tests.Excel.Write.pas',
+  Office4D.Tests.PowerPoint in 'Office4D.Tests.PowerPoint.pas';
 
 var
   Runner: ITestRunner;
