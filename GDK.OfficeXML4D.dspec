@@ -2,7 +2,7 @@
 min dpm client version: 1.0.0
 metadata:
   id: GDK.OfficeXML4D
-  version: 1.0.0
+  version: 1.0.1
   description: 'Pure Delphi library for reading and writing Microsoft Office Open XML documents (.docx, .xlsx).'
   authors:
     - Marco Geuze
@@ -23,6 +23,7 @@ targetPlatforms:
     platforms:
       - win32
       - win64
+      - linux64
 templates:
   - name: default
     source:
