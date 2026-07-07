@@ -96,7 +96,6 @@ type
     function GenerateSlideRelsXml: string;
     function GenerateParagraphXml(const Paragraph: IPowerPointParagraph): string;
     function GenerateRunXml(const Run: IPowerPointRun): string;
-    function EscapeXml(const Text: string): string;
 
     procedure ParsePackage;
     procedure ParseSlideXml(const Xml: string);
@@ -123,7 +122,8 @@ implementation
 
 uses
   System.RegularExpressions,
-  Office4D.Relationships;
+  Office4D.Relationships,
+  Office4D.Xml;
 
 const
   XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -636,7 +636,7 @@ begin
       SB.Append('<p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>');
       SB.Append('<p:spPr/>');
       SB.Append('<p:txBody><a:bodyPr/><a:lstStyle/>');
-      SB.Append('<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>' + EscapeXml(Slide.Title) + '</a:t></a:r></a:p>');
+      SB.Append('<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>' + TXml.Escape(Slide.Title) + '</a:t></a:r></a:p>');
       SB.Append('</p:txBody>');
       SB.Append('</p:sp>');
     end;
@@ -718,9 +718,9 @@ begin
 
   var Children := '';
   if Run.FontColor <> '' then
-    Children := Children + '<a:solidFill><a:srgbClr val="' + EscapeXml(Run.FontColor) + '"/></a:solidFill>';
+    Children := Children + '<a:solidFill><a:srgbClr val="' + TXml.Escape(Run.FontColor) + '"/></a:solidFill>';
   if Run.FontName <> '' then
-    Children := Children + '<a:latin typeface="' + EscapeXml(Run.FontName) + '"/>';
+    Children := Children + '<a:latin typeface="' + TXml.Escape(Run.FontName) + '"/>';
 
   var RPr := '';
   if Children = '' then
@@ -728,17 +728,7 @@ begin
   else
     RPr := '<a:rPr' + Attrs + '>' + Children + '</a:rPr>';
 
-  Result := '<a:r>' + RPr + '<a:t>' + EscapeXml(Run.Text) + '</a:t></a:r>';
-end;
-
-function TPowerPointPresentation.EscapeXml(const Text: string): string;
-begin
-  Result := Text;
-  Result := StringReplace(Result, '&', '&amp;', [rfReplaceAll]);
-  Result := StringReplace(Result, '<', '&lt;', [rfReplaceAll]);
-  Result := StringReplace(Result, '>', '&gt;', [rfReplaceAll]);
-  Result := StringReplace(Result, '"', '&quot;', [rfReplaceAll]);
-  Result := StringReplace(Result, '''', '&apos;', [rfReplaceAll]);
+  Result := '<a:r>' + RPr + '<a:t>' + TXml.Escape(Run.Text) + '</a:t></a:r>';
 end;
 
 procedure TPowerPointPresentation.LoadFromFile(const FileName: string);
@@ -834,7 +824,7 @@ begin
         var Title := '';
         const TextMatches = TRegEx.Matches(SpXml, '<a:t>([^<]*)</a:t>', [roIgnoreCase]);
         for var TextMatch in TextMatches do
-          Title := Title + TextMatch.Groups[1].Value;
+          Title := Title + TXml.Unescape(TextMatch.Groups[1].Value);
         Slide.Title := Title;
       end
       else
@@ -867,7 +857,7 @@ begin
       if not TextMatch.Success then
         Continue;
 
-      const Run = Paragraph.AddRun(TextMatch.Groups[1].Value);
+      const Run = Paragraph.AddRun(TXml.Unescape(TextMatch.Groups[1].Value));
 
       const RPrMatch = TRegEx.Match(RunXml, '<a:rPr([^>]*?)(?:/>|>(.*?)</a:rPr>)', [roIgnoreCase, roSingleLine]);
       if RPrMatch.Success then

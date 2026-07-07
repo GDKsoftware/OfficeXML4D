@@ -13,6 +13,7 @@ uses
   Office4D.Errors in '..\..\Source\Core\Office4D.Errors.pas',
   Office4D.Package in '..\..\Source\Core\Office4D.Package.pas',
   Office4D.Relationships in '..\..\Source\Core\Office4D.Relationships.pas',
+  Office4D.Xml in '..\..\Source\Core\Office4D.Xml.pas',
   Office4D.Metadata in '..\..\Source\Common\Office4D.Metadata.pas',
   Office4D.Word in '..\..\Source\Word\Office4D.Word.pas',
   Office4D.Word.Document in '..\..\Source\Word\Office4D.Word.Document.pas',

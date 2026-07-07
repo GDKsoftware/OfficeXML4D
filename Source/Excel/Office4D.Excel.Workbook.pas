@@ -143,7 +143,6 @@ type
 
     function BuildSharedStrings: TList<string>;
     function GetSharedStringIndex(const Strings: TList<string>; const Value: string): Integer;
-    function EscapeXml(const Text: string): string;
     function AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
     function GenerateContentTypes: string;
     function GenerateRels: string;
@@ -180,7 +179,8 @@ uses
   System.StrUtils,
   Office4D.Errors,
   Office4D.Relationships,
-  Office4D.Types;
+  Office4D.Types,
+  Office4D.Xml;
 
 const
   // Default OOXML indexed colour palette (indices 0-63). Indices 0-7 are redundant
@@ -774,16 +774,6 @@ begin
   Result := Strings.IndexOf(Value);
 end;
 
-function TExcelWorkbook.EscapeXml(const Text: string): string;
-begin
-  Result := Text;
-  Result := StringReplace(Result, '&', '&amp;', [rfReplaceAll]);
-  Result := StringReplace(Result, '<', '&lt;', [rfReplaceAll]);
-  Result := StringReplace(Result, '>', '&gt;', [rfReplaceAll]);
-  Result := StringReplace(Result, '"', '&quot;', [rfReplaceAll]);
-  Result := StringReplace(Result, '''', '&apos;', [rfReplaceAll]);
-end;
-
 function TExcelWorkbook.GenerateContentTypes: string;
 begin
   var SB := TStringBuilder.Create;
@@ -1034,7 +1024,7 @@ begin
     SB.Append(XmlDeclaration);
     SB.Append('<sst xmlns="' + SpreadsheetNs + '" count="' + IntToStr(Strings.Count) + '" uniqueCount="' + IntToStr(Strings.Count) + '">');
     for var StringItem in Strings do
-      SB.Append('<si><t>' + StringItem + '</t></si>');
+      SB.Append('<si><t>' + TXml.Escape(StringItem) + '</t></si>');
     SB.Append('</sst>');
     Result := SB.ToString;
   finally
@@ -1184,7 +1174,7 @@ begin
     begin
       SB.Append('<numFmts count="' + IntToStr(NumFormats.Count) + '">');
       for var I := 0 to NumFormats.Count - 1 do
-        SB.Append('<numFmt numFmtId="' + IntToStr(165 + I) + '" formatCode="' + EscapeXml(NumFormats[I]) + '"/>');
+        SB.Append('<numFmt numFmtId="' + IntToStr(165 + I) + '" formatCode="' + TXml.Escape(NumFormats[I]) + '"/>');
       SB.Append('</numFmts>');
     end;
 
@@ -1208,7 +1198,7 @@ begin
       else
         SB.Append('<sz val="11"/>');
       if Name <> '' then
-        SB.Append('<name val="' + EscapeXml(Name) + '"/>')
+        SB.Append('<name val="' + TXml.Escape(Name) + '"/>')
       else
         SB.Append('<name val="Calibri"/>');
       SB.Append('</font>');
@@ -1370,7 +1360,7 @@ begin
       const TextMatches = TRegEx.Matches(SiXml, '<t(?:\s[^>]*)?>([^<]*)</t>', [roIgnoreCase]);
       for var TextMatch in TextMatches do
         if TextMatch.Groups.Count > 1 then
-          Text := Text + TextMatch.Groups[1].Value;
+          Text := Text + TXml.Unescape(TextMatch.Groups[1].Value);
       FSharedStrings.Add(Text);
     end;
 end;

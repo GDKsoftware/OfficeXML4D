@@ -34,6 +34,9 @@ type
     procedure RoundTrip_LoadModifySave_PreservesContent;
 
     [Test]
+    procedure RoundTrip_SpecialCharacters_ArePreserved;
+
+    [Test]
     procedure SaveToFile_ValidatesAsZip;
 
     [Test]
@@ -917,6 +920,18 @@ begin
   finally
     Package.Free;
   end;
+end;
+
+procedure TWordWriteTests.RoundTrip_SpecialCharacters_ArePreserved;
+begin
+  const Special = 'R&D <tag> "q" ''a'' 5>3';
+  FDoc.AddParagraph.AddRun(Special);
+
+  FDoc.SaveToFile(FTempFile);
+
+  var Doc2 := TWordDocumentFactory.CreateDocument;
+  Doc2.LoadFromFile(FTempFile);
+  Assert.AreEqual(Special, Doc2.Paragraphs[0].Runs[0].Text, 'Run special characters should round-trip');
 end;
 
 initialization

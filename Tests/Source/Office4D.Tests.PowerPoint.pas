@@ -88,6 +88,9 @@ type
 
     [Test]
     procedure LoadFromStream_ReadsPresentation;
+
+    [Test]
+    procedure RoundTrip_SpecialCharacters_ArePreserved;
   end;
 
 implementation
@@ -425,6 +428,21 @@ begin
   finally
     Stream.Free;
   end;
+end;
+
+procedure TPowerPointRoundTripTests.RoundTrip_SpecialCharacters_ArePreserved;
+begin
+  const Special = 'Q&A <tag> "quote" ''apos'' 100% > 50%';
+  const Slide = FPresentation.AddSlide(Special);
+  Slide.AddParagraph(Special);
+
+  FPresentation.SaveToFile(FTempFile);
+
+  const Presentation2 = TPowerPointPresentationFactory.CreatePresentation;
+  Presentation2.LoadFromFile(FTempFile);
+  const Slide2 = Presentation2.Slides[0];
+  Assert.AreEqual(Special, Slide2.Title, 'Title special characters should round-trip');
+  Assert.AreEqual(Special, Slide2.Paragraphs[0].Text, 'Paragraph special characters should round-trip');
 end;
 
 initialization

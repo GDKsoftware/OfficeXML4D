@@ -137,7 +137,6 @@ type
     function GenerateDocumentRelsXml: string;
     function GenerateHeaderXml: string;
     function GenerateFooterXml: string;
-    function EscapeXml(const Text: string): string;
     function CollectHyperlinks: TList<string>;
     function GetHyperlinkId(const Url: string; const Hyperlinks: TList<string>): Integer;
     function HasListParagraphs: Boolean;
@@ -180,7 +179,8 @@ implementation
 
 uses
   Office4D.Errors,
-  Office4D.Types;
+  Office4D.Types,
+  Office4D.Xml;
 
 const
   XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -568,7 +568,7 @@ begin
           var TextMatch := TRegEx.Match(HyperlinkContent, TextPattern, [roIgnoreCase]);
           if TextMatch.Success and (TextMatch.Groups.Count > 1) then
           begin
-            var TextValue := TextMatch.Groups[1].Value;
+            var TextValue := TXml.Unescape(TextMatch.Groups[1].Value);
             if TextValue <> '' then
             begin
               var Run := Para.AddRun(TextValue);
@@ -599,7 +599,7 @@ begin
           var TextMatch := TRegEx.Match(RunXml, TextPattern, [roIgnoreCase]);
           if TextMatch.Success and (TextMatch.Groups.Count > 1) then
           begin
-            var TextValue := TextMatch.Groups[1].Value;
+            var TextValue := TXml.Unescape(TextMatch.Groups[1].Value);
             if TextValue <> '' then
               Para.AddRun(TextValue);
           end;
@@ -740,16 +740,6 @@ begin
       MetaParser.Free;
     end;
   end;
-end;
-
-function TWordDocument.EscapeXml(const Text: string): string;
-begin
-  Result := Text;
-  Result := StringReplace(Result, '&', '&amp;', [rfReplaceAll]);
-  Result := StringReplace(Result, '<', '&lt;', [rfReplaceAll]);
-  Result := StringReplace(Result, '>', '&gt;', [rfReplaceAll]);
-  Result := StringReplace(Result, '"', '&quot;', [rfReplaceAll]);
-  Result := StringReplace(Result, '''', '&apos;', [rfReplaceAll]);
 end;
 
 function TWordDocument.CollectHyperlinks: TList<string>;
@@ -927,7 +917,7 @@ begin
       RelsContent := RelsContent +
         '<Relationship Id="rId' + IntToStr(NextId + I) + '" ' +
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" ' +
-        'Target="' + EscapeXml(Hyperlinks[I]) + '" TargetMode="External"/>';
+        'Target="' + TXml.Escape(Hyperlinks[I]) + '" TargetMode="External"/>';
     end;
     NextId := NextId + Hyperlinks.Count;
 
@@ -1062,7 +1052,7 @@ begin
           begin
             Body := Body + '<w:rPr>';
             if Run.FontName <> '' then
-              Body := Body + '<w:rFonts w:ascii="' + EscapeXml(Run.FontName) + '" w:hAnsi="' + EscapeXml(Run.FontName) + '"/>';
+              Body := Body + '<w:rFonts w:ascii="' + TXml.Escape(Run.FontName) + '" w:hAnsi="' + TXml.Escape(Run.FontName) + '"/>';
             if Run.Bold then
               Body := Body + '<w:b/>';
             if Run.Italic then
@@ -1072,10 +1062,10 @@ begin
             if Run.FontSize > 0 then
               Body := Body + '<w:sz w:val="' + IntToStr(Run.FontSize) + '"/>';
             if Run.FontColor <> '' then
-              Body := Body + '<w:color w:val="' + EscapeXml(Run.FontColor) + '"/>';
+              Body := Body + '<w:color w:val="' + TXml.Escape(Run.FontColor) + '"/>';
             Body := Body + '</w:rPr>';
           end;
-          Body := Body + '<w:t xml:space="preserve">' + EscapeXml(RunText) + '</w:t></w:r>';
+          Body := Body + '<w:t xml:space="preserve">' + TXml.Escape(RunText) + '</w:t></w:r>';
 
           if HasHyperlink then
             Body := Body + '</w:hyperlink>';
@@ -1148,7 +1138,7 @@ begin
             Body := Body + '</w:tcPr>';
           end;
 
-          Body := Body + '<w:p><w:r><w:t>' + EscapeXml(Cell.Text) + '</w:t></w:r></w:p>';
+          Body := Body + '<w:p><w:r><w:t>' + TXml.Escape(Cell.Text) + '</w:t></w:r></w:p>';
           Body := Body + '</w:tc>';
         end;
         Body := Body + '</w:tr>';
@@ -1495,7 +1485,7 @@ begin
   Result :=
     XmlDeclaration + sLineBreak +
     '<w:hdr xmlns:w="' + WordprocessingNs + '">' +
-    '<w:p><w:r><w:t>' + EscapeXml(FHeader.Text) + '</w:t></w:r></w:p>' +
+    '<w:p><w:r><w:t>' + TXml.Escape(FHeader.Text) + '</w:t></w:r></w:p>' +
     '</w:hdr>';
 end;
 
@@ -1504,7 +1494,7 @@ begin
   Result :=
     XmlDeclaration + sLineBreak +
     '<w:ftr xmlns:w="' + WordprocessingNs + '">' +
-    '<w:p><w:r><w:t>' + EscapeXml(FFooter.Text) + '</w:t></w:r></w:p>' +
+    '<w:p><w:r><w:t>' + TXml.Escape(FFooter.Text) + '</w:t></w:r></w:p>' +
     '</w:ftr>';
 end;
 
@@ -1513,7 +1503,7 @@ begin
   var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
   var Match := TRegEx.Match(XmlContent, TextPattern, [roIgnoreCase]);
   if Match.Success and (Match.Groups.Count > 1) then
-    Target.Text := Match.Groups[1].Value;
+    Target.Text := TXml.Unescape(Match.Groups[1].Value);
 end;
 
 end.

@@ -34,6 +34,9 @@ type
     procedure RoundTrip_LoadModifySave_PreservesContent;
 
     [Test]
+    procedure RoundTrip_SpecialCharacters_ArePreserved;
+
+    [Test]
     procedure SaveToFile_ValidatesAsZip;
 
     [Test]
@@ -1126,6 +1129,19 @@ begin
   const Workbook2 = TExcelWorkbookFactory.Create;
   Workbook2.LoadFromFile(FTempFile);
   Assert.AreEqual(Double(TestValue), Double(Workbook2.Sheets[0].Cell['A1'].AsDateTime), 1E-8);
+end;
+
+procedure TExcelWriteTests.RoundTrip_SpecialCharacters_ArePreserved;
+begin
+  const Special = 'R&D <tag> "q" ''a'' 5>3';
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := Special;
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  Assert.AreEqual(Special, Workbook2.Sheets[0].Cell['A1'].AsString, 'Cell special characters should round-trip');
 end;
 
 initialization
