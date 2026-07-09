@@ -1,4 +1,4 @@
-﻿package OfficeXML4D_R;
+package OfficeXML4D_R;
 
 {$R *.res}
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
@@ -25,7 +25,7 @@
 {$IMAGEBASE $400000}
 {$DEFINE RELEASE}
 {$ENDIF IMPLICITBUILDING}
-{$LIBSUFFIX '260'}
+{$LIBSUFFIX AUTO}
 {$RUNONLY}
 {$IMPLICITBUILD OFF}
 
@@ -38,9 +38,12 @@ contains
   Office4D.Package in '..\..\Source\Core\Office4D.Package.pas',
   Office4D.Relationships in '..\..\Source\Core\Office4D.Relationships.pas',
   Office4D.Types in '..\..\Source\Core\Office4D.Types.pas',
+  Office4D.Xml in '..\..\Source\Core\Office4D.Xml.pas',
   Office4D.Excel in '..\..\Source\Excel\Office4D.Excel.pas',
   Office4D.Excel.Workbook in '..\..\Source\Excel\Office4D.Excel.Workbook.pas',
   Office4D.Word.Document in '..\..\Source\Word\Office4D.Word.Document.pas',
-  Office4D.Word in '..\..\Source\Word\Office4D.Word.pas';
+  Office4D.Word in '..\..\Source\Word\Office4D.Word.pas',
+  Office4D.PowerPoint in '..\..\Source\PowerPoint\Office4D.PowerPoint.pas',
+  Office4D.PowerPoint.Presentation in '..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas';
 
 end.

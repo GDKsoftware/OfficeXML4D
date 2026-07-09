@@ -95,10 +95,13 @@
         <DCCReference Include="..\..\Source\Core\Office4D.Package.pas"/>
         <DCCReference Include="..\..\Source\Core\Office4D.Relationships.pas"/>
         <DCCReference Include="..\..\Source\Core\Office4D.Types.pas"/>
+        <DCCReference Include="..\..\Source\Core\Office4D.Xml.pas"/>
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.pas"/>
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.Workbook.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.Document.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
