@@ -211,6 +211,12 @@ type
 
     [Test]
     procedure Preserve_ColumnWidth;
+
+    [Test]
+    procedure Reads_FontColor;
+
+    [Test]
+    procedure Preserve_FontColor;
   end;
 
 implementation
@@ -686,6 +692,32 @@ begin
 
   Assert.AreEqual(Double(20), Sheet.GetColumnWidth('B'), 'Layout col B width');
   Assert.AreEqual(Double(30), Sheet.GetColumnWidth('C'), 'Layout col C width');
+end;
+
+procedure TExcelLayoutTests.Reads_FontColor;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+
+  var Sheet := FWorkbook.SheetByName('Layout');
+  Assert.IsNotNull(Sheet);
+
+  // A2 has a coloured font, which maps to greenish ($00B050)
+  Assert.AreEqual($00B050, Sheet.Cell['A2'].FontColor, 'Layout!A2 font colour');
+end;
+
+procedure TExcelLayoutTests.Preserve_FontColor;
+begin
+  FWorkbook.LoadFromFile(GetExcelSamplePath);
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Workbook2 := TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+
+  var Sheet := Workbook2.SheetByName('Layout');
+  Assert.IsNotNull(Sheet);
+
+  // After a save/reload cycle, the font colour on A2 should be preserved
+  Assert.AreEqual($00B050, Sheet.Cell['A2'].FontColor, 'Layout!A2 font colour');
 end;
 
 { TExcelSharedStringsTests }
