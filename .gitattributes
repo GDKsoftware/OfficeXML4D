@@ -13,5 +13,11 @@
 *.ico binary
 *.png binary
 *.gif binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.doc binary
+*.xls binary
+*.ppt binary
 
 *.dspec filter=insert-hash
