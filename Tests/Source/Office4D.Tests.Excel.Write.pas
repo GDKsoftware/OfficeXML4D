@@ -185,6 +185,12 @@ type
 
     [Test]
     procedure RoundTrip_DateTimeWithTime_PreservesValue;
+
+    [Test]
+    procedure SaveToFile_WithFontColor_ContainsFontColor;
+
+    [Test]
+    procedure RoundTrip_FontColor_PreservesFontColor;
   end;
 
 implementation
@@ -754,6 +760,38 @@ begin
   Workbook2.LoadFromFile(FTempFile);
   Assert.IsTrue(Workbook2.Sheets[0].Cell['A1'].Underline, 'A1 should be underlined');
   Assert.IsFalse(Workbook2.Sheets[0].Cell['B1'].Underline, 'B1 should not be underlined');
+end;
+
+procedure TExcelWriteTests.SaveToFile_WithFontColor_ContainsFontColor;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Red font color';
+  Sheet.Cell['A1'].FontColor := $FF0000;
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const StylesXml = Package.GetPartContent('xl/styles.xml');
+    Assert.IsTrue(Pos('FF0000', StylesXml) > 0, 'Should contain font color');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.RoundTrip_FontColor_PreservesFontColor;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Red font color';
+  Sheet.Cell['A1'].FontColor := $FF0000;
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+
+  Assert.AreEqual(Cardinal($FF0000), Workbook2.Sheets[0].Cell['A1'].FontColor);
 end;
 
 procedure TExcelWriteTests.SaveToFile_WithFontName_ContainsFontNameStyle;

@@ -38,6 +38,7 @@ type
     FHAlign: TExcelHAlign;
     FVAlign: TExcelVAlign;
     FWrapText: Boolean;
+    FFontColor: Cardinal;
   public
     function GetAsString: string;
     procedure SetAsString(const Value: string);
@@ -74,6 +75,8 @@ type
     procedure SetVAlign(const Value: TExcelVAlign);
     function GetWrapText: Boolean;
     procedure SetWrapText(const Value: Boolean);
+    function GetFontColor: Cardinal;
+    procedure SetFontColor(const Value: Cardinal);
 
     function GetIsString: Boolean;
     function HasStyle: Boolean;
@@ -135,6 +138,7 @@ type
     FStyleHAlign: TList<TExcelHAlign>;
     FStyleVAlign: TList<TExcelVAlign>;
     FStyleWrapText: TList<Boolean>;
+    FStyleFontColor: TList<Cardinal>;
 
     procedure ParseWorkbook(const Xml: string);
     procedure ParseSharedStrings(const Xml: string);
@@ -336,9 +340,19 @@ begin
   FUnderline := Value;
 end;
 
+function TExcelCell.GetFontColor: Cardinal;
+begin
+  Result := FFontColor;
+end;
+
 function TExcelCell.GetFontName: string;
 begin
   Result := FFontName;
+end;
+
+procedure TExcelCell.SetFontColor(const Value: Cardinal);
+begin
+  FFontColor := Value;
 end;
 
 procedure TExcelCell.SetFontName(const Value: string);
@@ -408,7 +422,7 @@ end;
 
 function TExcelCell.HasStyle: Boolean;
 begin
-  const HasFont = (FBold) or (FItalic) or (FUnderline) or (FFontName <> '') or (FFontSize <> 0);
+  const HasFont = (FBold) or (FItalic) or (FUnderline) or (FFontName <> '') or (FFontSize <> 0) or (FFontColor <> 0);
   const HasFill = (FBackgroundColor <> 0);
   const HasFormat = (FCellType = TCellType.DateTime);
   const HasBorder = (FBorderStyle <> TExcelBorderStyle.None);
@@ -544,10 +558,12 @@ begin
   FStyleHAlign := TList<TExcelHAlign>.Create;
   FStyleVAlign := TList<TExcelVAlign>.Create;
   FStyleWrapText := TList<Boolean>.Create;
+  FStyleFontColor := TList<Cardinal>.Create;
 end;
 
 destructor TExcelWorkbook.Destroy;
 begin
+  FStyleFontColor.Free;
   FStyleWrapText.Free;
   FStyleVAlign.Free;
   FStyleHAlign.Free;
@@ -1044,7 +1060,7 @@ begin
       DateFlag := 2
     else
       DateFlag := 1;
-  Result := Format('%d|%d|%d|%s|%d|%d|%s|%s|%d|%d|%d|%d|%d', [
+  Result := Format('%d|%d|%d|%s|%d|%d|%s|%s|%d|%d|%d|%d|%d|%d', [
     Ord(Cell.FBold),
     Cell.FBackgroundColor,
     DateFlag,
@@ -1057,15 +1073,16 @@ begin
     Cell.FBorderColor,
     Ord(Cell.FHAlign),
     Ord(Cell.FVAlign),
-    Ord(Cell.FWrapText)
+    Ord(Cell.FWrapText),
+    Cell.FFontColor
   ]);
 end;
 
 function TExcelWorkbook.BuildStyleMap: TDictionary<string, Integer>;
 begin
   Result := TDictionary<string, Integer>.Create;
-  Result.Add('0|0|0||0|0|||0|0|0|0|0', 0);
-  Result.Add('0|0|1||0|0|||0|0|0|0|0', 1);
+  Result.Add('0|0|0||0|0|||0|0|0|0|0|0', 0);
+  Result.Add('0|0|1||0|0|||0|0|0|0|0|0', 1);
 
   var NextIndex := 2;
   for var Sheet in FSheets do
@@ -1152,9 +1169,9 @@ begin
       var FontSizeStr := '';
       if Cell.FFontSize <> 0 then
         FontSizeStr := FormatFloat('0.##', Cell.FFontSize, TFormatSettings.Invariant);
-      const FontKey = Format('%d|%d|%d|%s|%s', [
-        Ord(Cell.FBold), Ord(Cell.FItalic), Ord(Cell.FUnderline), Cell.FFontName, FontSizeStr]);
-      if (FontKey <> '0|0|0||') and (not FontKeys.Contains(FontKey)) then
+      const FontKey = Format('%d|%d|%d|%s|%s|%d', [
+        Ord(Cell.FBold), Ord(Cell.FItalic), Ord(Cell.FUnderline), Cell.FFontName, FontSizeStr, Cell.FFontColor]);
+      if (FontKey <> '0|0|0|||0') and (not FontKeys.Contains(FontKey)) then
         FontKeys.Add(FontKey);
 
       const BorderKey = Format('%d|%d', [Ord(Cell.FBorderStyle), Cell.FBorderColor]);
@@ -1189,6 +1206,7 @@ begin
       const IsUnderline = FontParts[2] = '1';
       const Name = FontParts[3];
       const Size = FontParts[4];
+      const FontColor = StrToIntDef(FontParts[5], 0);
       SB.Append('<font>');
       if IsBold then SB.Append('<b/>');
       if IsItalic then SB.Append('<i/>');
@@ -1197,6 +1215,8 @@ begin
         SB.Append('<sz val="' + Size + '"/>')
       else
         SB.Append('<sz val="11"/>');
+      if FontColor <> 0 then
+        SB.Append('<color rgb="FF' + IntToHex(FontColor, 6) + '"/>');
       if Name <> '' then
         SB.Append('<name val="' + TXml.Escape(Name) + '"/>')
       else
@@ -1267,11 +1287,12 @@ begin
         const CellHAlign = TExcelHAlign(StrToIntDef(Parts[10], 0));
         const CellVAlign = TExcelVAlign(StrToIntDef(Parts[11], 0));
         const CellWrapText = Parts[12] = '1';
+        const CellFontColor = StrToIntDef(Parts[13], 0);
 
-        const FontKey = Format('%d|%d|%d|%s|%s', [
-          Ord(IsBold), Ord(IsItalic), Ord(IsUnderline), CellFontName, CellFontSize]);
+        const FontKey = Format('%d|%d|%d|%s|%s|%d', [
+          Ord(IsBold), Ord(IsItalic), Ord(IsUnderline), CellFontName, CellFontSize, CellFontColor]);
         var FontId := 0;
-        if FontKey <> '0|0|0||' then
+        if FontKey <> '0|0|0|||0' then
           FontId := 1 + FontKeys.IndexOf(FontKey);
 
         var FillId := 0;
@@ -1407,6 +1428,7 @@ begin
   FStyleHAlign.Clear;
   FStyleVAlign.Clear;
   FStyleWrapText.Clear;
+  FStyleFontColor.Clear;
 
   var FontsBold := TList<Boolean>.Create;
   var FontsItalic := TList<Boolean>.Create;
@@ -1416,6 +1438,7 @@ begin
   var Fills := TList<Cardinal>.Create;
   var BorderStyles := TList<TExcelBorderStyle>.Create;
   var BorderColors := TList<Cardinal>.Create;
+  var FontsColor := TList<Cardinal>.Create;
   try
     const FontMatches = TRegEx.Matches(Xml, '<font>(.*?)</font>', [roIgnoreCase, roSingleLine]);
     for var Match in FontMatches do
@@ -1424,6 +1447,12 @@ begin
       FontsBold.Add(Pos('<b/>', FontXml) > 0);
       FontsItalic.Add(Pos('<i/>', FontXml) > 0);
       FontsUnderline.Add(Pos('<u/>', FontXml) > 0);
+
+      const ColorMatch = TRegEx.Match(FontXml, '<color\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
+      if ColorMatch.Success then
+        FontsColor.Add(StrToInt('$' + ColorMatch.Groups[1].Value))
+      else
+        FontsColor.Add(0);
 
       const NameMatch = TRegEx.Match(FontXml, '<name\s+val="([^"]*)"', [roIgnoreCase]);
       if NameMatch.Success then
@@ -1523,6 +1552,11 @@ begin
         if FontIdMatch.Success then
           FontId := StrToIntDef(FontIdMatch.Groups[1].Value, 0);
 
+        var FColor: Cardinal := 0;
+        if FontId < FontsColor.Count then
+          FColor := FontsColor[FontId];
+        FStyleFontColor.Add(FColor);
+
         const FillIdMatch = TRegEx.Match(XfXml, 'fillId="(\d+)"', [roIgnoreCase]);
         var FillId := 0;
         if FillIdMatch.Success then
@@ -1592,6 +1626,7 @@ begin
     BorderColors.Free;
     BorderStyles.Free;
     Fills.Free;
+    FontSColor.Free;
     FontsSize.Free;
     FontsName.Free;
     FontsUnderline.Free;
@@ -1823,6 +1858,8 @@ begin
             Cell.FFontSize := FStyleFontSize[StyleIdx];
           if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
             Cell.FBackgroundColor := FStyleColors[StyleIdx];
+          if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
+            Cell.FFontColor := FStyleFontColor[StyleIdx];
           if (StyleIdx < FStyleBorderStyle.Count) and (FStyleBorderStyle[StyleIdx] <> TExcelBorderStyle.None) then
             Cell.FBorderStyle := FStyleBorderStyle[StyleIdx];
           if (StyleIdx < FStyleBorderColor.Count) and (FStyleBorderColor[StyleIdx] <> 0) then
@@ -1865,6 +1902,8 @@ begin
           Cell.FFontSize := FStyleFontSize[StyleIdx];
         if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
           Cell.FBackgroundColor := FStyleColors[StyleIdx];
+        if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
+          Cell.FFontColor := FStyleFontColor[StyleIdx];
         if (StyleIdx < FStyleBorderStyle.Count) and (FStyleBorderStyle[StyleIdx] <> TExcelBorderStyle.None) then
           Cell.FBorderStyle := FStyleBorderStyle[StyleIdx];
         if (StyleIdx < FStyleBorderColor.Count) and (FStyleBorderColor[StyleIdx] <> 0) then

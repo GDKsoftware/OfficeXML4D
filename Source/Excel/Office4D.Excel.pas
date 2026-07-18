@@ -56,6 +56,8 @@ type
     procedure SetVAlign(const Value: TExcelVAlign);
     function GetWrapText: Boolean;
     procedure SetWrapText(const Value: Boolean);
+    function GetFontColor: Cardinal;
+    procedure SetFontColor(const Value: Cardinal);
 
     property AsString: string read GetAsString write SetAsString;
     property AsFloat: Double read GetAsFloat write SetAsFloat;
@@ -75,6 +77,7 @@ type
     property HAlign: TExcelHAlign read GetHAlign write SetHAlign;
     property VAlign: TExcelVAlign read GetVAlign write SetVAlign;
     property WrapText: Boolean read GetWrapText write SetWrapText;
+    property FontColor: Cardinal read GetFontColor write SetFontColor;
   end;
 
   IExcelSheet = interface
