@@ -113,6 +113,7 @@ type
     procedure SetCellValue(const Address, Value: string; IsString: Boolean);
     procedure SetBooleanValue(const Address: string; Value: Boolean);
     procedure SetCellFormula(const Address, Formula, Value: string);
+    procedure SetDateTimeValue(const Address: string; const Value: Double);
 
     function GetCells: TDictionary<string, IExcelCell>;
 
@@ -139,6 +140,7 @@ type
     FStyleVAlign: TList<TExcelVAlign>;
     FStyleWrapText: TList<Boolean>;
     FStyleFontColor: TList<Cardinal>;
+    FStyleIsDate: TList<Boolean>;
 
     procedure ParseWorkbook(const Xml: string);
     procedure ParseSharedStrings(const Xml: string);
@@ -531,6 +533,16 @@ begin
   Cell.SetAsBoolean(Value);
 end;
 
+procedure TExcelSheet.SetDateTimeValue(const Address: string; const Value: Double);
+begin
+  // Value is the raw Excel serial number as read from <v>. A Delphi
+  // TDateTime and an Excel/OOXML date serial number are the same value
+  // numerically (see TExcelCell.SetAsDateTime), so it can be passed
+  // straight through without any epoch conversion.
+  var Cell := GetCell(Address) as TExcelCell;
+  Cell.SetAsDateTime(Value);
+end;
+
 procedure TExcelSheet.SetCellFormula(const Address, Formula, Value: string);
 begin
   var Cell := GetCell(Address) as TExcelCell;
@@ -558,10 +570,12 @@ begin
   FStyleVAlign := TList<TExcelVAlign>.Create;
   FStyleWrapText := TList<Boolean>.Create;
   FStyleFontColor := TList<Cardinal>.Create;
+  FStyleIsDate := TList<Boolean>.Create;
 end;
 
 destructor TExcelWorkbook.Destroy;
 begin
+  FStyleIsDate.Free;
   FStyleFontColor.Free;
   FStyleWrapText.Free;
   FStyleVAlign.Free;
@@ -1415,6 +1429,43 @@ procedure TExcelWorkbook.ParseStyles(const Xml: string);
     else Result := TExcelVAlign.None;
   end;
 
+  // Built-in numFmtId values 14-22 are the standard date/time formats
+  // (e.g. 14 = m/d/yyyy, 22 = m/d/yyyy h:mm); 45-47 are the built-in
+  // duration/time formats (mm:ss, [h]:mm:ss, mmss.0). IDs 0-163 are
+  // reserved for built-ins; anything else is either "General"/numeric
+  // or unused, so it isn't a date.
+  function IsBuiltInDateNumFmtId(const NumFmtId: Integer): Boolean;
+  begin
+    Result := ((NumFmtId >= 14) and (NumFmtId <= 22)) or
+              ((NumFmtId >= 45) and (NumFmtId <= 47));
+  end;
+
+  // Heuristic used to classify a custom (non-built-in) format code, e.g.
+  // "yyyy-mm-dd" or "dd/mm/yyyy hh:mm". Quoted literal text and bracketed
+  // sections (colour tags like [Red], locale tags like [$-409], or
+  // conditional tags like [>=100]) are stripped first so that literal
+  // text or non-date bracket tags can't be mistaken for date components.
+  // What remains is checked for the date/time placeholder letters
+  // (y, d, h, s, and AM/PM); if any are present the format is a date.
+  // "m" is deliberately excluded on its own, since standalone "m" is
+  // ambiguous with numeric formats, and a month-only format with no
+  // year/day/time component is vanishingly rare in practice.
+  function IsDateFormatCode(const FormatCode: string): Boolean;
+  var
+    Cleaned: string;
+  begin
+    if (FormatCode = '') or SameText(FormatCode, 'General') then
+      Exit(False);
+
+    // Only the first section (before an unescaped ';') applies to
+    // positive values, which is what a date serial number is.
+    Cleaned := TRegEx.Match(FormatCode, '^((?:[^;"\[]|"[^"]*"|\[[^\]]*\])*)').Groups[1].Value;
+    Cleaned := TRegEx.Replace(Cleaned, '"[^"]*"', '', [roIgnoreCase]);
+    Cleaned := TRegEx.Replace(Cleaned, '\[[^\]]*\]', '', [roIgnoreCase]);
+
+    Result := TRegEx.IsMatch(Cleaned, '[ydhsYDHS]') or (Pos('AM/PM', UpperCase(Cleaned)) > 0);
+  end;
+
 begin
   FStyleBold.Clear;
   FStyleItalic.Clear;
@@ -1428,6 +1479,7 @@ begin
   FStyleVAlign.Clear;
   FStyleWrapText.Clear;
   FStyleFontColor.Clear;
+  FStyleIsDate.Clear;
 
   var FontsBold := TList<Boolean>.Create;
   var FontsItalic := TList<Boolean>.Create;
@@ -1438,7 +1490,15 @@ begin
   var BorderStyles := TList<TExcelBorderStyle>.Create;
   var BorderColors := TList<Cardinal>.Create;
   var FontsColor := TList<Cardinal>.Create;
+  var CustomNumFmts := TDictionary<Integer, string>.Create;
   try
+    const NumFmtMatches = TRegEx.Matches(Xml,
+      '<numFmt\s+numFmtId="(\d+)"\s+formatCode="([^"]*)"', [roIgnoreCase]);
+    for var NumFmtMatch in NumFmtMatches do
+      CustomNumFmts.AddOrSetValue(
+        StrToIntDef(NumFmtMatch.Groups[1].Value, -1),
+        TXml.Unescape(NumFmtMatch.Groups[2].Value));
+
     const FontMatches = TRegEx.Matches(Xml, '<font>(.*?)</font>', [roIgnoreCase, roSingleLine]);
     for var Match in FontMatches do
     begin
@@ -1546,6 +1606,19 @@ begin
       begin
         const XfXml = Match.Value;
 
+        const NumFmtIdMatch = TRegEx.Match(XfXml, 'numFmtId="(\d+)"', [roIgnoreCase]);
+        var NumFmtId := 0;
+        if NumFmtIdMatch.Success then
+          NumFmtId := StrToIntDef(NumFmtIdMatch.Groups[1].Value, 0);
+
+        var CustomFormatCode: string;
+        if IsBuiltInDateNumFmtId(NumFmtId) then
+          FStyleIsDate.Add(True)
+        else if CustomNumFmts.TryGetValue(NumFmtId, CustomFormatCode) then
+          FStyleIsDate.Add(IsDateFormatCode(CustomFormatCode))
+        else
+          FStyleIsDate.Add(False);
+
         const FontIdMatch = TRegEx.Match(XfXml, 'fontId="(\d+)"', [roIgnoreCase]);
         var FontId := 0;
         if FontIdMatch.Success then
@@ -1622,6 +1695,7 @@ begin
       end;
     end;
   finally
+    CustomNumFmts.Free;
     BorderColors.Free;
     BorderStyles.Free;
     Fills.Free;
@@ -1839,7 +1913,10 @@ begin
         end
         else
         begin
-          Sheet.SetCellValue(Address, Value, False);
+          if (StyleIdx > 0) and (StyleIdx < FStyleIsDate.Count) and FStyleIsDate[StyleIdx] then
+            Sheet.SetDateTimeValue(Address, StrToFloatDef(Value, 0, TFormatSettings.Invariant))
+          else
+            Sheet.SetCellValue(Address, Value, False);
           Cell := Sheet.GetCell(Address) as TExcelCell;
         end;
 

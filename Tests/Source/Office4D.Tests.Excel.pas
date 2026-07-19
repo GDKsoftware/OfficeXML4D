@@ -133,6 +133,35 @@ type
   end;
 
   [TestFixture]
+  TExcelDateReadTests = class
+  private
+    FTempFile: string;
+
+    procedure WriteWorkbookWithStyles(const StylesXml, SheetXml: string);
+  public
+    [Setup]
+    procedure Setup;
+
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure Load_CellWithBuiltInDateFormat_ReturnsCorrectDate;
+
+    [Test]
+    procedure Load_CellWithCustomDateFormat_ReturnsCorrectDate;
+
+    [Test]
+    procedure Load_CellWithBuiltInDateTimeFormat_ReturnsCorrectDateAndTime;
+
+    [Test]
+    procedure Load_CellWithCurrencyFormat_IsNotMisreadAsDate;
+
+    [Test]
+    procedure Load_CellWithNoStyle_IsNotMisreadAsDate;
+  end;
+
+  [TestFixture]
   TExcelFormulaTests = class(TOffice4DTests)
   private
     FWorkbook: IExcelWorkbook;
@@ -796,6 +825,151 @@ begin
   Assert.AreEqual('Last', Sheet.Cell['D1'].AsString, 'D1 should map to entry 3');
 end;
 
+{ TExcelDateReadTests }
+
+procedure TExcelDateReadTests.Setup;
+begin
+  FTempFile := TPath.Combine(TPath.GetTempPath, 'test_date_read_' + TGUID.NewGuid.ToString + '.xlsx');
+end;
+
+procedure TExcelDateReadTests.TearDown;
+begin
+  if TFile.Exists(FTempFile) then
+    TFile.Delete(FTempFile);
+end;
+
+// Builds a minimal .xlsx by hand (not via this library's own SaveToFile) so
+// these tests exercise the read path in isolation. That matters here
+// specifically: an equal-and-opposite bug on the write side previously
+// masked an epoch bug on the read side in the library's own round-trip
+// tests, so read-side fixtures must not depend on the writer at all.
+procedure TExcelDateReadTests.WriteWorkbookWithStyles(const StylesXml, SheetXml: string);
+const
+  XmlDecl = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  SpreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+begin
+  const WorkbookXml = XmlDecl +
+    '<workbook xmlns="' + SpreadsheetNs + '"><sheets><sheet name="Sheet1" sheetId="1"/></sheets></workbook>';
+
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(FTempFile, zmWrite);
+    Zip.Add(TEncoding.UTF8.GetBytes(WorkbookXml), 'xl/workbook.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(XmlDecl + StylesXml), 'xl/styles.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(XmlDecl + SheetXml), 'xl/worksheets/sheet1.xml');
+    Zip.Close;
+  finally
+    Zip.Free;
+  end;
+end;
+
+procedure TExcelDateReadTests.Load_CellWithBuiltInDateFormat_ReturnsCorrectDate;
+begin
+  // numFmtId 14 is the built-in "m/d/yyyy" date format. 45458 is the real
+  // Excel serial number for 2024-06-15 (days since 1899-12-30) - i.e. what
+  // any real .xlsx produced by Excel would actually contain, independent
+  // of this library.
+  WriteWorkbookWithStyles(
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<cellXfs count="2">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>' +
+    '<xf numFmtId="14" fontId="0" fillId="0" borderId="0"/>' +
+    '</cellXfs></styleSheet>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData><row r="1"><c r="A1" s="1"><v>45458</v></c></row></sheetData></worksheet>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  Assert.AreEqual(EncodeDate(2024, 6, 15), Workbook.Sheets[0].Cell['A1'].AsDateTime, 0.0001,
+    'A date-formatted cell with serial 45458 should read back as 2024-06-15');
+end;
+
+procedure TExcelDateReadTests.Load_CellWithCustomDateFormat_ReturnsCorrectDate;
+begin
+  // A custom (non-built-in) numFmt whose format code is clearly a date
+  // ("yyyy\-mm\-dd", as Excel itself escapes the literal dashes) should be
+  // detected as a date just like a built-in numFmtId would be.
+  WriteWorkbookWithStyles(
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\-mm\-dd"/></numFmts>' +
+    '<cellXfs count="2">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>' +
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0"/>' +
+    '</cellXfs></styleSheet>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData><row r="1"><c r="A1" s="1"><v>45458</v></c></row></sheetData></worksheet>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  Assert.AreEqual(EncodeDate(2024, 6, 15), Workbook.Sheets[0].Cell['A1'].AsDateTime, 0.0001,
+    'A cell with a custom date-like numFmt should read back as 2024-06-15');
+end;
+
+procedure TExcelDateReadTests.Load_CellWithBuiltInDateTimeFormat_ReturnsCorrectDateAndTime;
+begin
+  // numFmtId 22 is the built-in "m/d/yyyy h:mm" date+time format.
+  // 45458.5 is the Excel serial for 2024-06-15 12:00:00.
+  WriteWorkbookWithStyles(
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<cellXfs count="2">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>' +
+    '<xf numFmtId="22" fontId="0" fillId="0" borderId="0"/>' +
+    '</cellXfs></styleSheet>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData><row r="1"><c r="A1" s="1"><v>45458.5</v></c></row></sheetData></worksheet>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  const Expected = EncodeDate(2024, 6, 15) + EncodeTime(12, 0, 0, 0);
+  Assert.AreEqual(Expected, Workbook.Sheets[0].Cell['A1'].AsDateTime, 0.0001,
+    'A date+time-formatted cell with serial 45458.5 should read back as 2024-06-15 12:00:00');
+end;
+
+procedure TExcelDateReadTests.Load_CellWithCurrencyFormat_IsNotMisreadAsDate;
+begin
+  // A custom currency format has no date/time placeholder characters and
+  // must not be misclassified as a date. AsString is used as the probe
+  // here: SetCellValue (the plain-number path) preserves the cell's raw
+  // XML text in AsString, while SetAsDateTime (the date path) does not -
+  // so a wrong classification is visible without depending on the
+  // internal TExcelCell.CellType.
+  WriteWorkbookWithStyles(
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts>' +
+    '<cellXfs count="2">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>' +
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0"/>' +
+    '</cellXfs></styleSheet>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData><row r="1"><c r="A1" s="1"><v>123.45</v></c></row></sheetData></worksheet>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  Assert.AreEqual(Double(123.45), Workbook.Sheets[0].Cell['A1'].AsFloat, 0.001,
+    'Currency-formatted cell should still read back as a plain number');
+  Assert.AreEqual('123.45', Workbook.Sheets[0].Cell['A1'].AsString,
+    'Currency-formatted cell should go through the number path, not the date path');
+end;
+
+procedure TExcelDateReadTests.Load_CellWithNoStyle_IsNotMisreadAsDate;
+begin
+  WriteWorkbookWithStyles(
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs></styleSheet>',
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData><row r="1"><c r="A1"><v>123.45</v></c></row></sheetData></worksheet>');
+
+  const Workbook = TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile(FTempFile);
+
+  Assert.AreEqual(Double(123.45), Workbook.Sheets[0].Cell['A1'].AsFloat, 0.001);
+  Assert.AreEqual('123.45', Workbook.Sheets[0].Cell['A1'].AsString);
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TExcelReadTests);
   TDUnitX.RegisterTestFixture(TExcelDOMTests);
@@ -803,5 +977,6 @@ initialization
   TDUnitX.RegisterTestFixture(TExcelFormulaTests);
   TDUnitX.RegisterTestFixture(TExcelLayoutTests);
   TDUnitX.RegisterTestFixture(TExcelSharedStringsTests);
+  TDUnitX.RegisterTestFixture(TExcelDateReadTests);
 
 end.
