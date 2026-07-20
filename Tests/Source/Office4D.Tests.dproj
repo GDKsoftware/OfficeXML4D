@@ -165,6 +165,7 @@
         <DCCReference Include="Office4D.Tests.Excel.Write.pas"/>
         <DCCReference Include="Office4D.Tests.PowerPoint.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.BorderSides.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.FontStyle.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

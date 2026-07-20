@@ -18,6 +18,8 @@ type
   // VeryHidden sheets can only be made visible again through code (or the VBA editor),
   // not through the Excel UI.
   TExcelSheetVisibility = (Visible, Hidden, VeryHidden);
+  TExcelFontStyle = (Bold, Italic, Underline, Strikeout);
+  TExcelFontStyles = set of TExcelFontStyle;
   {$SCOPEDENUMS OFF}
 
   IExcelCell = interface;
@@ -43,6 +45,8 @@ type
     procedure SetItalic(const Value: Boolean);
     function GetUnderline: Boolean;
     procedure SetUnderline(const Value: Boolean);
+    function GetStrikeout: Boolean;
+    procedure SetStrikeout(const Value: Boolean);
     function GetFontName: string;
     procedure SetFontName(const Value: string);
     function GetFontSize: Double;
@@ -63,6 +67,8 @@ type
     procedure SetWrapText(const Value: Boolean);
     function GetFontColor: Cardinal;
     procedure SetFontColor(const Value: Cardinal);
+    function GetFontStyle: TExcelFontStyles;
+    procedure SetFontStyle(const Value: TExcelFontStyles);
 
     property AsString: string read GetAsString write SetAsString;
     property AsFloat: Double read GetAsFloat write SetAsFloat;
@@ -73,6 +79,7 @@ type
     property Bold: Boolean read GetBold write SetBold;
     property Italic: Boolean read GetItalic write SetItalic;
     property Underline: Boolean read GetUnderline write SetUnderline;
+    property Strikeout: Boolean read GetStrikeout write SetStrikeout;
     property FontName: string read GetFontName write SetFontName;
     property FontSize: Double read GetFontSize write SetFontSize;
     property BackgroundColor: Cardinal read GetBackgroundColor write SetBackgroundColor;
@@ -83,6 +90,7 @@ type
     property VAlign: TExcelVAlign read GetVAlign write SetVAlign;
     property WrapText: Boolean read GetWrapText write SetWrapText;
     property FontColor: Cardinal read GetFontColor write SetFontColor;
+    property FontStyle: TExcelFontStyles read GetFontStyle write SetFontStyle;
   end;
 
   IExcelSheet = interface

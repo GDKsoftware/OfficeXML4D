@@ -32,7 +32,8 @@ uses
   Office4D.Tests.Excel in 'Office4D.Tests.Excel.pas',
   Office4D.Tests.Excel.Write in 'Office4D.Tests.Excel.Write.pas',
   Office4D.Tests.PowerPoint in 'Office4D.Tests.PowerPoint.pas',
-  Office4D.Tests.Excel.BorderSides in 'Office4D.Tests.Excel.BorderSides.pas';
+  Office4D.Tests.Excel.BorderSides in 'Office4D.Tests.Excel.BorderSides.pas',
+  Office4D.Tests.Excel.FontStyle in 'Office4D.Tests.Excel.FontStyle.pas';
 
 var
   Runner: ITestRunner;

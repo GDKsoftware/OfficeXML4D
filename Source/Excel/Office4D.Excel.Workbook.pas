@@ -1,4 +1,4 @@
-unit Office4D.Excel.Workbook;
+﻿unit Office4D.Excel.Workbook;
 
 interface
 
@@ -39,6 +39,7 @@ type
     FVAlign: TExcelVAlign;
     FWrapText: Boolean;
     FFontColor: Cardinal;
+    FStrikeout: Boolean;
   public
     function GetAsString: string;
     procedure SetAsString(const Value: string);
@@ -57,6 +58,8 @@ type
     procedure SetItalic(const Value: Boolean);
     function GetUnderline: Boolean;
     procedure SetUnderline(const Value: Boolean);
+    function GetStrikeout: Boolean;
+    procedure SetStrikeout(const Value: Boolean);
     function GetFontName: string;
     procedure SetFontName(const Value: string);
     function GetFontSize: Double;
@@ -77,6 +80,8 @@ type
     procedure SetWrapText(const Value: Boolean);
     function GetFontColor: Cardinal;
     procedure SetFontColor(const Value: Cardinal);
+    function GetFontStyle: TExcelFontStyles;
+    procedure SetFontStyle(const Value: TExcelFontStyles);
 
     function GetIsString: Boolean;
     function HasStyle: Boolean;
@@ -136,6 +141,7 @@ type
     FStyleBold: TList<Boolean>;
     FStyleItalic: TList<Boolean>;
     FStyleUnderline: TList<Boolean>;
+    FStyleStrikeout: TList<Boolean>;
     FStyleFontName: TList<string>;
     FStyleFontSize: TList<Double>;
     FStyleColors: TList<Cardinal>;
@@ -332,6 +338,16 @@ begin
   FNumberFormat := Value;
 end;
 
+function TExcelCell.GetStrikeout: Boolean;
+begin
+  Result := FStrikeout;
+end;
+
+procedure TExcelCell.SetStrikeout(const Value: Boolean);
+begin
+  FStrikeout := Value;
+end;
+
 function TExcelCell.GetItalic: Boolean;
 begin
   Result := FItalic;
@@ -380,6 +396,23 @@ end;
 procedure TExcelCell.SetFontSize(const Value: Double);
 begin
   FFontSize := Value;
+end;
+
+function TExcelCell.GetFontStyle: TExcelFontStyles;
+begin
+  Result := [];
+  if FBold then Include(Result, TExcelFontStyle.Bold);
+  if FItalic then Include(Result, TExcelFontStyle.Italic);
+  if FUnderline then Include(Result, TExcelFontStyle.Underline);
+  if FStrikeout then Include(Result, TExcelFontStyle.Strikeout);
+end;
+
+procedure TExcelCell.SetFontStyle(const Value: TExcelFontStyles);
+begin
+  FBold := TExcelFontStyle.Bold in Value;
+  FItalic := TExcelFontStyle.Italic in Value;
+  FUnderline := TExcelFontStyle.Underline in Value;
+  FStrikeout := TExcelFontStyle.Strikeout in Value;
 end;
 
 function TExcelCell.GetBorderStyle(ASides: TExcelBorderSides): TExcelBorderStyle;
@@ -444,7 +477,7 @@ end;
 
 function TExcelCell.HasStyle: Boolean;
 begin
-  const HasFont = (FBold) or (FItalic) or (FUnderline) or (FFontName <> '') or (FFontSize <> 0) or (FFontColor <> 0);
+  const HasFont = (FBold) or (FItalic) or (FUnderline) or (FFontName <> '') or (FFontSize <> 0) or (FFontColor <> 0) or (FStrikeout);
   const HasFill = (FBackgroundColor <> 0);
   const HasFormat = (FCellType = TCellType.DateTime);
   var HasBorder := False;
@@ -602,6 +635,7 @@ begin
   FStyleFontSize := TList<Double>.Create;
   FStyleColors := TList<Cardinal>.Create;
   FStyleFontColor := TList<Cardinal>.Create;
+  FStyleStrikeout := TList<Boolean>.Create;
   FStyleBorderTopStyle := TList<TExcelBorderStyle>.Create;
   FStyleBorderTopColor := TList<Cardinal>.Create;
   FStyleBorderRightStyle := TList<TExcelBorderStyle>.Create;
@@ -631,6 +665,7 @@ begin
   FStyleBorderTopColor.Free;
   FStyleBorderTopStyle.Free;
   FStyleFontColor.Free;
+  FStyleStrikeout.Free;
   FStyleColors.Free;
   FStyleFontSize.Free;
   FStyleFontName.Free;
@@ -1140,7 +1175,7 @@ begin
       DateFlag := 2
     else
       DateFlag := 1;
-  Result := Format('%d|%d|%d|%s|%d|%d|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d', [
+  Result := Format('%d|%d|%d|%s|%d|%d|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d', [
     Ord(Cell.FBold),
     Cell.FBackgroundColor,
     DateFlag,
@@ -1160,7 +1195,8 @@ begin
     Ord(Cell.FHAlign),
     Ord(Cell.FVAlign),
     Ord(Cell.FWrapText),
-    Cell.FFontColor
+    Cell.FFontColor,
+    Ord(Cell.FStrikeout)
   ]);
 end;
 
@@ -1281,9 +1317,9 @@ begin
       var FontSizeStr := '';
       if Cell.FFontSize <> 0 then
         FontSizeStr := FormatFloat('0.##', Cell.FFontSize, TFormatSettings.Invariant);
-      const FontKey = Format('%d|%d|%d|%s|%s|%d', [
-        Ord(Cell.FBold), Ord(Cell.FItalic), Ord(Cell.FUnderline), Cell.FFontName, FontSizeStr, Cell.FFontColor]);
-      if (FontKey <> '0|0|0|||0') and (not FontKeys.Contains(FontKey)) then
+      const FontKey = Format('%d|%d|%d|%s|%s|%d|%d', [
+        Ord(Cell.FBold), Ord(Cell.FItalic), Ord(Cell.FUnderline), Cell.FFontName, FontSizeStr, Cell.FFontColor, Ord(Cell.FStrikeout)]);
+      if (FontKey <> '0|0|0|||0|0') and (not FontKeys.Contains(FontKey)) then
         FontKeys.Add(FontKey);
 
       const BorderKey = Format('%d|%d|%d|%d|%d|%d|%d|%d', [
@@ -1323,10 +1359,12 @@ begin
       const Name = FontParts[3];
       const Size = FontParts[4];
       const FontColor = StrToIntDef(FontParts[5], 0);
+      const IsStrikeout = FontParts[6] = '1';
       SB.Append('<font>');
       if IsBold then SB.Append('<b/>');
       if IsItalic then SB.Append('<i/>');
       if IsUnderline then SB.Append('<u/>');
+      if IsStrikeout then SB.Append('<strike/>');
       if Size <> '' then
         SB.Append('<sz val="' + Size + '"/>')
       else
@@ -1411,13 +1449,14 @@ begin
         const CellVAlign = TExcelVAlign(StrToIntDef(Parts[17], 0));
         const CellWrapText = Parts[18] = '1';
         const CellFontColor = StrToIntDef(Parts[19], 0);
+        const CellStrikeout = Parts[20] = '1';
 
         // Must match the FontKeys population format in the collection loop above,
         // field-for-field — this 5-vs-6-field mismatch was the original FontColor bug.
-        const FontKey = Format('%d|%d|%d|%s|%s|%d', [
-          Ord(IsBold), Ord(IsItalic), Ord(IsUnderline), CellFontName, CellFontSize, CellFontColor]);
+        const FontKey = Format('%d|%d|%d|%s|%s|%d|%d', [
+          Ord(IsBold), Ord(IsItalic), Ord(IsUnderline), CellFontName, CellFontSize, CellFontColor, Ord(CellStrikeout)]);
         var FontId := 0;
-        if FontKey <> '0|0|0|||0' then
+        if FontKey <> '0|0|0|||0|0' then
           FontId := 1 + FontKeys.IndexOf(FontKey);
 
         var FillId := 0;
@@ -1626,6 +1665,7 @@ begin
   FStyleFontSize.Clear;
   FStyleColors.Clear;
   FStyleFontColor.Clear;
+  FStyleStrikeout.Clear;
   FStyleBorderTopStyle.Clear;
   FStyleBorderTopColor.Clear;
   FStyleBorderRightStyle.Clear;
@@ -1642,6 +1682,7 @@ begin
   var FontsBold := TList<Boolean>.Create;
   var FontsItalic := TList<Boolean>.Create;
   var FontsUnderline := TList<Boolean>.Create;
+  var FontsStrikeout := TList<Boolean>.Create;
   var FontsName := TList<string>.Create;
   var FontsSize := TList<Double>.Create;
   var Fills := TList<Cardinal>.Create;
@@ -1670,6 +1711,7 @@ begin
       FontsBold.Add(Pos('<b/>', FontXml) > 0);
       FontsItalic.Add(Pos('<i/>', FontXml) > 0);
       FontsUnderline.Add(Pos('<u/>', FontXml) > 0);
+      FontsStrikeout.Add(Pos('<strike/>', FontXml) > 0);
 
       const ColorMatch = TRegEx.Match(FontXml, '<color\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
       if ColorMatch.Success then
@@ -1834,6 +1876,8 @@ begin
           FColor := FontsColor[FontId];
         FStyleFontColor.Add(FColor);
 
+        FStyleStrikeout.Add((FontId < FontsStrikeout.Count) and (FontsStrikeout[FontId]));
+
         if BorderId < TopStyles.Count then
           FStyleBorderTopStyle.Add(TopStyles[BorderId])
         else
@@ -1906,6 +1950,7 @@ begin
     FontsSize.Free;
     FontsName.Free;
     FontsUnderline.Free;
+    FontsStrikeout.Free;
     FontsItalic.Free;
     FontsBold.Free;
   end;
@@ -2139,6 +2184,8 @@ begin
             Cell.FBackgroundColor := FStyleColors[StyleIdx];
           if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
             Cell.FFontColor := FStyleFontColor[StyleIdx];
+          if (StyleIdx < FStyleStrikeout.Count) and (FStyleStrikeout[StyleIdx]) then
+            Cell.FStrikeout := True;
           if (StyleIdx < FStyleBorderTopStyle.Count) and (FStyleBorderTopStyle[StyleIdx] <> TExcelBorderStyle.None) then
             Cell.FBorderStyle[TExcelBorderSide.Top] := FStyleBorderTopStyle[StyleIdx];
           if (StyleIdx < FStyleBorderTopColor.Count) and (FStyleBorderTopColor[StyleIdx] <> 0) then
@@ -2195,6 +2242,8 @@ begin
           Cell.FBackgroundColor := FStyleColors[StyleIdx];
         if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
           Cell.FFontColor := FStyleFontColor[StyleIdx];
+        if (StyleIdx < FStyleStrikeout.Count) and (FStyleStrikeout[StyleIdx]) then
+          Cell.FStrikeout := True;
         if (StyleIdx < FStyleBorderTopStyle.Count) and (FStyleBorderTopStyle[StyleIdx] <> TExcelBorderStyle.None) then
           Cell.FBorderStyle[TExcelBorderSide.Top] := FStyleBorderTopStyle[StyleIdx];
         if (StyleIdx < FStyleBorderTopColor.Count) and (FStyleBorderTopColor[StyleIdx] <> 0) then
