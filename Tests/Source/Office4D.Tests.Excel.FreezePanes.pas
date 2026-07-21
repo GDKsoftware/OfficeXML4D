@@ -58,13 +58,69 @@ type
 
     [Test]
     procedure SaveToFile_WithFreezePanesAndColumnWidths_SheetViewsPrecedesCols;
+
+    [Test]
+    procedure SaveToFile_FreezeBothAxes_EmitsThreeSelectionsAfterPane;
+
+    [Test]
+    procedure SaveToFile_FreezeRowsOnly_EmitsSingleBottomLeftSelection;
+
+    [Test]
+    procedure SaveToFile_FreezeColumnsOnly_EmitsSingleTopRightSelection;
+
+    [Test]
+    procedure LoadFromFile_SplitPane_IsNotReadAsFrozen;
+
+    [Test]
+    procedure LoadFromFile_FrozenSplitPane_ReadsFrozenCounts;
   end;
 
 implementation
 
 uses
+  System.Zip,
+  System.RegularExpressions,
   Office4D.Errors,
   Office4D.Package;
+
+{ Rewrites xl/worksheets/sheet1.xml inside an existing .xlsx with NewSheetXml, copying every
+  other part verbatim. Used to inject pane XML the library never writes itself (e.g. a "split"
+  pane) so the read path can be exercised against it. }
+procedure ReplaceSheet1Xml(const FileName, NewSheetXml: string);
+const
+  Sheet1Path = 'xl/worksheets/sheet1.xml';
+var
+  Names: TArray<string>;
+  Contents: TArray<TBytes>;
+begin
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(FileName, zmRead);
+    SetLength(Names, Zip.FileCount);
+    SetLength(Contents, Zip.FileCount);
+    for var I := 0 to Zip.FileCount - 1 do
+    begin
+      Names[I] := Zip.FileNames[I];
+      if SameText(StringReplace(Names[I], '\', '/', [rfReplaceAll]), Sheet1Path) then
+        Contents[I] := TEncoding.UTF8.GetBytes(NewSheetXml)
+      else
+        Zip.Read(I, Contents[I]);
+    end;
+  finally
+    Zip.Free;
+  end;
+
+  TFile.Delete(FileName);
+
+  var ZipOut := TZipFile.Create;
+  try
+    ZipOut.Open(FileName, zmWrite);
+    for var I := 0 to High(Names) do
+      ZipOut.Add(Contents[I], Names[I]);
+  finally
+    ZipOut.Free;
+  end;
+end;
 
 { TExcelFreezePanesTests }
 
@@ -269,6 +325,144 @@ begin
   finally
     Package.Free;
   end;
+end;
+
+procedure TExcelFreezePanesTests.SaveToFile_FreezeBothAxes_EmitsThreeSelectionsAfterPane;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Test';
+  Sheet.FreezePanes('C2'); // both axes -> bottomRight active
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const SheetXml = Package.GetPartContent('xl/worksheets/sheet1.xml');
+
+    // A both-axes freeze mirrors what Excel writes: one selection per pane, each pointing at
+    // the top-left cell of its own region.
+    Assert.AreEqual(3, TRegEx.Matches(SheetXml, '<selection\b').Count,
+      'A both-axes freeze must emit exactly three selection elements');
+    Assert.IsTrue(Pos('<selection pane="topRight" activeCell="C1" sqref="C1"/>', SheetXml) > 0,
+      'topRight selection should sit on the first frozen-below row, first scrollable column');
+    Assert.IsTrue(Pos('<selection pane="bottomLeft" activeCell="A2" sqref="A2"/>', SheetXml) > 0,
+      'bottomLeft selection should sit on column A, first scrollable row');
+    Assert.IsTrue(Pos('<selection pane="bottomRight" activeCell="C2" sqref="C2"/>', SheetXml) > 0,
+      'bottomRight selection should sit on the first fully scrollable cell');
+
+    // CT_SheetView requires pane before selection; a selection ahead of the pane is invalid.
+    Assert.IsTrue(Pos('<pane ', SheetXml) < Pos('<selection ', SheetXml),
+      'The pane element must precede the selection elements');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelFreezePanesTests.SaveToFile_FreezeRowsOnly_EmitsSingleBottomLeftSelection;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Test';
+  Sheet.FreezePanes('A2'); // rows only -> bottomLeft active
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const SheetXml = Package.GetPartContent('xl/worksheets/sheet1.xml');
+
+    Assert.AreEqual(1, TRegEx.Matches(SheetXml, '<selection\b').Count,
+      'A single-axis freeze must emit exactly one selection element');
+    Assert.IsTrue(Pos('<selection pane="bottomLeft" activeCell="A2" sqref="A2"/>', SheetXml) > 0,
+      'Row-only freeze selection should live in the bottomLeft pane at the first scrollable row');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelFreezePanesTests.SaveToFile_FreezeColumnsOnly_EmitsSingleTopRightSelection;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Test';
+  Sheet.FreezePanes('B1'); // columns only -> topRight active
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const SheetXml = Package.GetPartContent('xl/worksheets/sheet1.xml');
+
+    Assert.AreEqual(1, TRegEx.Matches(SheetXml, '<selection\b').Count,
+      'A single-axis freeze must emit exactly one selection element');
+    Assert.IsTrue(Pos('<selection pane="topRight" activeCell="B1" sqref="B1"/>', SheetXml) > 0,
+      'Column-only freeze selection should live in the topRight pane at the first scrollable column');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelFreezePanesTests.LoadFromFile_SplitPane_IsNotReadAsFrozen;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Test';
+  FWorkbook.SaveToFile(FTempFile);
+
+  var OriginalXml := '';
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    OriginalXml := Package.GetPartContent('xl/worksheets/sheet1.xml');
+  finally
+    Package.Free;
+  end;
+
+  // An unfrozen split stores the split-bar position in twentieths of a point (2160 = 108pt),
+  // not a row/column count. Reading it as frozen would report 2160 frozen columns.
+  const SplitViews =
+    '<sheetViews><sheetView workbookViewId="0">' +
+    '<pane xSplit="2160" ySplit="1440" topLeftCell="D5" activePane="bottomRight" state="split"/>' +
+    '</sheetView></sheetViews>';
+  ReplaceSheet1Xml(FTempFile, StringReplace(OriginalXml, '<sheetData>', SplitViews + '<sheetData>', []));
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  const Sheet2 = Workbook2.Sheets[0];
+
+  Assert.AreEqual(0, Sheet2.FrozenColumns, 'A split pane must not be interpreted as frozen columns');
+  Assert.AreEqual(0, Sheet2.FrozenRows, 'A split pane must not be interpreted as frozen rows');
+end;
+
+procedure TExcelFreezePanesTests.LoadFromFile_FrozenSplitPane_ReadsFrozenCounts;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Test';
+  FWorkbook.SaveToFile(FTempFile);
+
+  var OriginalXml := '';
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    OriginalXml := Package.GetPartContent('xl/worksheets/sheet1.xml');
+  finally
+    Package.Free;
+  end;
+
+  // state="frozenSplit" still encodes xSplit/ySplit as whole counts, so it must be read back
+  // like a plain frozen pane.
+  const FrozenSplitViews =
+    '<sheetViews><sheetView workbookViewId="0">' +
+    '<pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozenSplit"/>' +
+    '</sheetView></sheetViews>';
+  ReplaceSheet1Xml(FTempFile, StringReplace(OriginalXml, '<sheetData>', FrozenSplitViews + '<sheetData>', []));
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  const Sheet2 = Workbook2.Sheets[0];
+
+  Assert.AreEqual(2, Sheet2.FrozenColumns, 'frozenSplit xSplit should be read as a frozen column count');
+  Assert.AreEqual(1, Sheet2.FrozenRows, 'frozenSplit ySplit should be read as a frozen row count');
 end;
 
 initialization
