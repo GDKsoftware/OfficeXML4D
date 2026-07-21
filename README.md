@@ -203,6 +203,18 @@ begin
   Sheet.Cell['E1'].AsString := 'Merged Header';
   Sheet.MergeCells('E1:G1');
 
+  // Font, border and cell styling
+  Sheet.Cell['A4'].AsString := 'Computer';
+  Sheet.Cell['A4'].Italic := True;
+  Sheet.Cell['A4'].FontStyle := Sheet.Cell['A4'].FontStyle + [TExcelFontStyle.Strikeout];
+  Sheet.Cell['A4'].BorderStyle[AllBorderSides] := TExcelBorderStyle.Thin;
+  Sheet.Cell['B5'].AsFloat := -999.00;
+  Sheet.Cell['B5'].FontColor := $FF0000;
+  Sheet.Cell['B5'].NumberFormat := '"$"#,##0.00';
+  Sheet.Cell['B5'].BorderColor[[TExcelBorderSide.Bottom, TExcelBorderSide.Top]] := $00FF00;
+  Sheet.Cell['B5'].BorderStyle[[TExcelBorderSide.Top]] := TExcelBorderStyle.Medium;
+  Sheet.Cell['B5'].BorderStyle[[TExcelBorderSide.Bottom]] := TExcelBorderStyle.Double;
+
   Workbook.SaveToFile('output.xlsx');
 end;
 ```
@@ -271,8 +283,10 @@ Examples/      - Demo application
 
 - Multiple worksheets
 - Sheet visibility (visible, hidden, very hidden)
+- Freeze panes
 - Cell data types: string, number, boolean, datetime
-- Cell styling: bold, background color
+- Cell styling: background color, border style, border color
+- Text formatting: bold, italic, underline, strikeout
 - Number formats (currency, percentage, custom)
 - Formulas with calculated values
 - Column widths
