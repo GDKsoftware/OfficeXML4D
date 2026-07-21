@@ -1062,6 +1062,21 @@ begin
       SB.Append('<sheetViews><sheetView workbookViewId="0">');
       SB.Append('<pane xSplit="' + IntToStr(Sheet.FrozenColumns) + '" ySplit="' + IntToStr(Sheet.FrozenRows) +
         '" topLeftCell="' + TopLeftCell + '" activePane="' + ActivePane + '" state="frozen"/>');
+
+      // Excel emits one <selection> per pane that owns a selection: three for a both-axes
+      // freeze (topRight, bottomLeft, bottomRight), one for a single-axis freeze. Each
+      // pane's active cell is the top-left cell of that pane's own region.
+      if (Sheet.FrozenRows > 0) and (Sheet.FrozenColumns > 0) then
+      begin
+        const TopRightCell = TExcelSheet.ColumnNumberToLetters(Sheet.FrozenColumns + 1) + '1';
+        const BottomLeftCell = 'A' + IntToStr(Sheet.FrozenRows + 1);
+        SB.Append('<selection pane="topRight" activeCell="' + TopRightCell + '" sqref="' + TopRightCell + '"/>');
+        SB.Append('<selection pane="bottomLeft" activeCell="' + BottomLeftCell + '" sqref="' + BottomLeftCell + '"/>');
+        SB.Append('<selection pane="bottomRight" activeCell="' + TopLeftCell + '" sqref="' + TopLeftCell + '"/>');
+      end
+      else
+        SB.Append('<selection pane="' + ActivePane + '" activeCell="' + TopLeftCell + '" sqref="' + TopLeftCell + '"/>');
+
       SB.Append('</sheetView></sheetViews>');
     end;
 
@@ -2100,14 +2115,22 @@ begin
   if PaneMatch.Success then
   begin
     const PaneXml = PaneMatch.Value;
-    const XSplitMatch = TRegEx.Match(PaneXml, 'xSplit="([^"]*)"', [roIgnoreCase]);
-    const YSplitMatch = TRegEx.Match(PaneXml, 'ySplit="([^"]*)"', [roIgnoreCase]);
-    // xSplit/ySplit are declared as xsd:double in the schema, though for a pure freeze
-    // (rather than an unfrozen split) they're always written as whole numbers in practice.
-    if XSplitMatch.Success then
-      Sheet.FFrozenColumns := Trunc(StrToFloatDef(XSplitMatch.Groups[1].Value, 0, TFormatSettings.Invariant));
-    if YSplitMatch.Success then
-      Sheet.FFrozenRows := Trunc(StrToFloatDef(YSplitMatch.Groups[1].Value, 0, TFormatSettings.Invariant));
+    // Only a frozen pane encodes xSplit/ySplit as whole row/column counts. An unfrozen
+    // "split" pane stores the split-bar position in twentieths of a point (e.g. 2160), so
+    // reading that as a frozen count would be meaningless -- skip anything whose state is
+    // not frozen or frozenSplit.
+    const StateMatch = TRegEx.Match(PaneXml, 'state="([^"]*)"', [roIgnoreCase]);
+    const IsFrozen = StateMatch.Success and
+      (SameText(StateMatch.Groups[1].Value, 'frozen') or SameText(StateMatch.Groups[1].Value, 'frozenSplit'));
+    if IsFrozen then
+    begin
+      const XSplitMatch = TRegEx.Match(PaneXml, 'xSplit="([^"]*)"', [roIgnoreCase]);
+      const YSplitMatch = TRegEx.Match(PaneXml, 'ySplit="([^"]*)"', [roIgnoreCase]);
+      if XSplitMatch.Success then
+        Sheet.FFrozenColumns := Trunc(StrToFloatDef(XSplitMatch.Groups[1].Value, 0, TFormatSettings.Invariant));
+      if YSplitMatch.Success then
+        Sheet.FFrozenRows := Trunc(StrToFloatDef(YSplitMatch.Groups[1].Value, 0, TFormatSettings.Invariant));
+    end;
   end;
 
   const ColMatches = TRegEx.Matches(Xml, '<col\s[^/]*/>', [roIgnoreCase]);
