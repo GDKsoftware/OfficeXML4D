@@ -167,6 +167,9 @@
         <DCCReference Include="Office4D.Tests.Excel.BorderSides.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.FontStyle.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.FreezePanes.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.RemoveSheet.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.ClearColumnRow.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.DeleteColumnRow.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

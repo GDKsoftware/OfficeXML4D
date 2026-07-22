@@ -34,7 +34,10 @@ uses
   Office4D.Tests.PowerPoint in 'Office4D.Tests.PowerPoint.pas',
   Office4D.Tests.Excel.BorderSides in 'Office4D.Tests.Excel.BorderSides.pas',
   Office4D.Tests.Excel.FontStyle in 'Office4D.Tests.Excel.FontStyle.pas',
-  Office4D.Tests.Excel.FreezePanes in 'Office4D.Tests.Excel.FreezePanes.pas';
+  Office4D.Tests.Excel.FreezePanes in 'Office4D.Tests.Excel.FreezePanes.pas',
+  Office4D.Tests.Excel.RemoveSheet in 'Office4D.Tests.Excel.RemoveSheet.pas',
+  Office4D.Tests.Excel.ClearColumnRow in 'Office4D.Tests.Excel.ClearColumnRow.pas',
+  Office4D.Tests.Excel.DeleteColumnRow in 'Office4D.Tests.Excel.DeleteColumnRow.pas';
 
 var
   Runner: ITestRunner;

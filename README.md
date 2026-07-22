@@ -219,6 +219,40 @@ begin
 end;
 ```
 
+### Editing Sheets, Columns and Rows
+
+```pascal
+uses
+  Office4D.Excel;
+
+var
+  Workbook: IExcelWorkbook;
+  Sheet: IExcelSheet;
+begin
+  Workbook := TExcelWorkbookFactory.Create;
+  Workbook.LoadFromFile('report.xlsx');
+
+  // Remove a whole sheet (by index or by name)
+  Workbook.RemoveSheetByName('Scratch');
+
+  Sheet := Workbook.SheetByName('Data');
+
+  // Clear a column or row: removes cell contents and styling, but leaves the
+  // structure (column widths, row heights, merged ranges) in place.
+  Sheet.ClearColumn('D');
+  Sheet.ClearRow(5);
+
+  // Delete a column or row: everything past it shifts back by one. Column widths,
+  // row heights, merged ranges and frozen panes move with it, and every formula
+  // reference is rewritten (absolute refs and ranges included). A reference to a
+  // deleted line becomes #REF!, exactly as Excel does.
+  Sheet.DeleteColumn('C');
+  Sheet.DeleteRow(2);
+
+  Workbook.SaveToFile('report.xlsx');
+end;
+```
+
 ### Stream Support
 
 Both Word and Excel support stream-based I/O:
@@ -283,7 +317,9 @@ Examples/      - Demo application
 
 - Multiple worksheets
 - Sheet visibility (visible, hidden, very hidden)
-- Freeze panes
+- Add and remove sheets
+- Clear a column or row (contents only, structure preserved)
+- Delete a column or row with reflow and formula-reference rewriting (#REF! on deleted lines)
 - Cell data types: string, number, boolean, datetime
 - Cell styling: background color, border style, border color
 - Text formatting: bold, italic, underline, strikeout
@@ -291,6 +327,7 @@ Examples/      - Demo application
 - Formulas with calculated values
 - Column widths
 - Merged cells
+- Freeze panes
 - Shared strings optimization
 - Metadata (author, title, dates)
 

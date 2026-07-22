@@ -18,6 +18,8 @@ type
   TCellType = (Empty, StringValue, Number, Boolean, DateTime);
   {$SCOPEDENUMS OFF}
 
+  TExcelWorkbook = class;
+
   TExcelCell = class(TInterfacedObject, IExcelCell)
   private
     FStringValue: string;
@@ -100,10 +102,15 @@ type
     FVisibility: TExcelSheetVisibility;
     FFrozenRows: Integer;
     FFrozenColumns: Integer;
+    FOwner: TExcelWorkbook;
 
     class function ColumnLetterToNumber(const Column: string): Integer; static;
     class function ColumnNumberToLetters(const Column: Integer): string; static;
     class procedure ParseCellAddress(const Address: string; out Col, Row: Integer); static;
+
+    procedure ClearLine(const AIsColumn: Boolean; const AIndex: Integer);
+    procedure DeleteLine(const AIsColumn: Boolean; const AIndex: Integer);
+    procedure RewriteOwnFormulas(const AIsColumn: Boolean; const AIndex: Integer);
   public
     constructor Create(const Name: string);
     destructor Destroy; override;
@@ -127,6 +134,11 @@ type
     procedure UnfreezePanes;
     function GetFrozenRows: Integer;
     function GetFrozenColumns: Integer;
+
+    procedure ClearColumn(const Column: string);
+    procedure ClearRow(const Row: Integer);
+    procedure DeleteColumn(const Column: string);
+    procedure DeleteRow(const Row: Integer);
 
     procedure SetCellValue(const Address, Value: string; IsString: Boolean);
     procedure SetBooleanValue(const Address: string; Value: Boolean);
@@ -189,6 +201,8 @@ type
     function BuildStyleMap: TDictionary<string, Integer>;
     function GetStyleKey(const Cell: TExcelCell): string;
     function GetCellStyleIndex(const Cell: TExcelCell; const StyleMap: TDictionary<string, Integer>): Integer;
+
+    procedure ApplyFormulaDelete(const ATargetSheet: TExcelSheet; const AIsColumn: Boolean; const ALineIndex: Integer);
   public
     constructor Create;
     destructor Destroy; override;
@@ -205,6 +219,9 @@ type
 
     function AddSheet(const Name: string): IExcelSheet;
     function SheetByName(const Name: string): IExcelSheet;
+
+    procedure RemoveSheet(Index: Integer);
+    procedure RemoveSheetByName(const Name: string);
   end;
 
 implementation
@@ -244,6 +261,247 @@ const
   PartWorkbookRels = 'xl/_rels/workbook.xml.rels';
   PartSheetPrefix = 'xl/worksheets/sheet';
   PartSheetSuffix = '.xml';
+
+{ Formula reference rewriting for DeleteColumn / DeleteRow }
+
+// Left edge of a reference range on the deleted axis. A coordinate before the
+// deleted line stays put; one after it shifts down by one; one exactly on the
+// deleted line clamps to the deleted position (the next surviving line moves there).
+function ClampLo(const AValue, ADeletedIndex: Integer): Integer;
+begin
+  if AValue < ADeletedIndex then
+    Result := AValue
+  else if AValue > ADeletedIndex then
+    Result := AValue - 1
+  else
+    Result := ADeletedIndex;
+end;
+
+// Right edge of a reference range on the deleted axis. Identical to ClampLo except
+// a coordinate exactly on the deleted line clamps to the line just before it, so a
+// range whose far edge sat on the deleted line shrinks (e.g. A1:C1 -> A1:B1).
+function ClampHi(const AValue, ADeletedIndex: Integer): Integer;
+begin
+  if AValue < ADeletedIndex then
+    Result := AValue
+  else if AValue > ADeletedIndex then
+    Result := AValue - 1
+  else
+    Result := ADeletedIndex - 1;
+end;
+
+// Splits an optional leading '$' from a column/row part, e.g. '$D' -> ('D', True).
+function SplitDollar(const APart: string; out AIsAbsolute: Boolean): string;
+begin
+  AIsAbsolute := APart.StartsWith('$');
+  if AIsAbsolute then
+    Result := APart.Substring(1)
+  else
+    Result := APart;
+end;
+
+function DollarIf(const AIsAbsolute: Boolean): string;
+begin
+  if AIsAbsolute then
+    Result := '$'
+  else
+    Result := '';
+end;
+
+// Turns a matched sheet prefix (including the trailing '!', possibly quoted) into
+// the bare sheet name, e.g. '''My Sheet''!' -> 'My Sheet'.
+function UnquoteSheetPrefix(const APrefix: string): string;
+begin
+  Result := APrefix;
+  if Result.EndsWith('!') then
+    Result := Result.Substring(0, Result.Length - 1);
+  if Result.StartsWith('''') and Result.EndsWith('''') and (Result.Length >= 2) then
+  begin
+    Result := Result.Substring(1, Result.Length - 2);
+    Result := StringReplace(Result, '''''', '''', [rfReplaceAll]);
+  end;
+end;
+
+// Rewrites a single matched cell reference or range for a column/row deletion.
+// References that do not resolve to the deleted sheet are returned verbatim.
+// Group layout: 1=sheet prefix, 2=col1, 3=row1, 4=col2, 5=row2 (4/5 only on a range).
+function TransformRefMatch(const AMatch: TMatch; const ATargetSheet, AFormulaSheet: string;
+  const AIsColumn: Boolean; const ALineIndex: Integer): string;
+
+  // Delphi's TMatch only reports groups up to the highest one that participated, so an
+  // optional trailing group is absent (not merely unsuccessful) on a non-range match.
+  function GroupValue(const AIndex: Integer): string;
+  begin
+    if AIndex < AMatch.Groups.Count then
+      Result := AMatch.Groups[AIndex].Value
+    else
+      Result := '';
+  end;
+
+  function GroupSuccess(const AIndex: Integer): Boolean;
+  begin
+    Result := (AIndex < AMatch.Groups.Count) and AMatch.Groups[AIndex].Success;
+  end;
+
+begin
+  const Prefix1 = GroupValue(1);
+  const IsRange = GroupSuccess(5);
+
+  var RefSheet := AFormulaSheet;
+  if Prefix1 <> '' then
+    RefSheet := UnquoteSheetPrefix(Prefix1);
+
+  // Only references pointing at the sheet whose line was deleted are affected.
+  if not SameText(RefSheet, ATargetSheet) then
+    Exit(AMatch.Value);
+
+  var Col1Abs, Row1Abs: Boolean;
+  const Col1Letters = SplitDollar(GroupValue(2), Col1Abs);
+  const Row1Digits = SplitDollar(GroupValue(3), Row1Abs);
+  var Col1 := TExcelSheet.ColumnLetterToNumber(Col1Letters);
+  var Row1 := StrToIntDef(Row1Digits, 0);
+
+  var Col2Abs := Col1Abs;
+  var Row2Abs := Row1Abs;
+  var Col2 := Col1;
+  var Row2 := Row1;
+  if IsRange then
+  begin
+    Col2 := TExcelSheet.ColumnLetterToNumber(SplitDollar(GroupValue(4), Col2Abs));
+    Row2 := StrToIntDef(SplitDollar(GroupValue(5), Row2Abs), 0);
+  end;
+
+  if AIsColumn then
+  begin
+    const Lo = Min(Col1, Col2);
+    const Hi = Max(Col1, Col2);
+    if (Lo = ALineIndex) and (Hi = ALineIndex) then
+      Exit('#REF!');
+    const NewLo = ClampLo(Lo, ALineIndex);
+    const NewHi = ClampHi(Hi, ALineIndex);
+    if Col1 <= Col2 then
+    begin
+      Col1 := NewLo;
+      Col2 := NewHi;
+    end
+    else
+    begin
+      Col1 := NewHi;
+      Col2 := NewLo;
+    end;
+  end
+  else
+  begin
+    const Lo = Min(Row1, Row2);
+    const Hi = Max(Row1, Row2);
+    if (Lo = ALineIndex) and (Hi = ALineIndex) then
+      Exit('#REF!');
+    const NewLo = ClampLo(Lo, ALineIndex);
+    const NewHi = ClampHi(Hi, ALineIndex);
+    if Row1 <= Row2 then
+    begin
+      Row1 := NewLo;
+      Row2 := NewHi;
+    end
+    else
+    begin
+      Row1 := NewHi;
+      Row2 := NewLo;
+    end;
+  end;
+
+  Result := Prefix1 + DollarIf(Col1Abs) + TExcelSheet.ColumnNumberToLetters(Col1) +
+    DollarIf(Row1Abs) + IntToStr(Row1);
+  if IsRange then
+    Result := Result + ':' + DollarIf(Col2Abs) + TExcelSheet.ColumnNumberToLetters(Col2) +
+      DollarIf(Row2Abs) + IntToStr(Row2);
+end;
+
+// Applies the reference transform to a stretch of formula text that contains no
+// string literals.
+function TransformFormulaSegment(const ASegment, ATargetSheet, AFormulaSheet: string;
+  const AIsColumn: Boolean; const ALineIndex: Integer): string;
+const
+  // [not a name char] [optional sheet prefix] col row  [ ':' [prefix] col row ]  [not '(' or name char].
+  // The trailing '(' guard keeps function names like LOG10 from being read as a reference.
+  // Groups: 1=sheet prefix, 2=col1, 3=row1, 4=col2, 5=row2. The second endpoint's sheet
+  // prefix (rare) is matched but not captured.
+  RefPattern =
+    '(?<![A-Za-z0-9_])' +
+    '((?:''[^'']*''|[A-Za-z_][A-Za-z0-9_.]*)!)?' +
+    '(\$?[A-Za-z]{1,3})(\$?\d+)' +
+    '(?::(?:(?:''[^'']*''|[A-Za-z_][A-Za-z0-9_.]*)!)?(\$?[A-Za-z]{1,3})(\$?\d+))?' +
+    '(?![A-Za-z0-9_(])';
+begin
+  Result := ASegment;
+  const Matches = TRegEx.Matches(ASegment, RefPattern, [roIgnoreCase]);
+  var OffsetAdjust := 0;
+  for var M in Matches do
+  begin
+    const OldRef = M.Value;
+    const NewRef = TransformRefMatch(M, ATargetSheet, AFormulaSheet, AIsColumn, ALineIndex);
+    if NewRef <> OldRef then
+    begin
+      const RefPos = M.Index + OffsetAdjust; // TMatch.Index is 1-based (Delphi string convention)
+      Delete(Result, RefPos, Length(OldRef));
+      Insert(NewRef, Result, RefPos);
+      Inc(OffsetAdjust, Length(NewRef) - Length(OldRef));
+    end;
+  end;
+end;
+
+// Rewrites all cell references in a formula for a column/row deletion on ATargetSheet.
+// String literals inside the formula are copied verbatim so cell-like text is never touched.
+function TransformFormulaForLineDelete(const AFormula, ATargetSheet, AFormulaSheet: string;
+  const AIsColumn: Boolean; const ALineIndex: Integer): string;
+begin
+  var Output := TStringBuilder.Create;
+  var Segment := TStringBuilder.Create;
+  try
+    var CharIndex := 1;
+    while CharIndex <= Length(AFormula) do
+    begin
+      if AFormula[CharIndex] = '"' then
+      begin
+        if Segment.Length > 0 then
+        begin
+          Output.Append(TransformFormulaSegment(Segment.ToString, ATargetSheet, AFormulaSheet, AIsColumn, ALineIndex));
+          Segment.Clear;
+        end;
+        // Copy the literal verbatim, treating a doubled "" as an escaped quote.
+        Output.Append(AFormula[CharIndex]);
+        Inc(CharIndex);
+        while CharIndex <= Length(AFormula) do
+        begin
+          Output.Append(AFormula[CharIndex]);
+          if AFormula[CharIndex] = '"' then
+          begin
+            if (CharIndex < Length(AFormula)) and (AFormula[CharIndex + 1] = '"') then
+            begin
+              Output.Append(AFormula[CharIndex + 1]);
+              Inc(CharIndex, 2);
+              Continue;
+            end;
+            Inc(CharIndex);
+            Break;
+          end;
+          Inc(CharIndex);
+        end;
+      end
+      else
+      begin
+        Segment.Append(AFormula[CharIndex]);
+        Inc(CharIndex);
+      end;
+    end;
+    if Segment.Length > 0 then
+      Output.Append(TransformFormulaSegment(Segment.ToString, ATargetSheet, AFormulaSheet, AIsColumn, ALineIndex));
+    Result := Output.ToString;
+  finally
+    Segment.Free;
+    Output.Free;
+  end;
+end;
 
 { TExcelCell }
 
@@ -687,6 +945,172 @@ begin
   Cell.FFormula := Formula;
   Cell.SetAsFloat(StrToFloatDef(Value, 0, TFormatSettings.Invariant));
   Cell.FStringValue := Value;
+end;
+
+procedure TExcelSheet.ClearColumn(const Column: string);
+begin
+  ClearLine(True, ColumnLetterToNumber(Column));
+end;
+
+procedure TExcelSheet.ClearRow(const Row: Integer);
+begin
+  ClearLine(False, Row);
+end;
+
+procedure TExcelSheet.ClearLine(const AIsColumn: Boolean; const AIndex: Integer);
+begin
+  // Cells are stored sparse and keyed by address, so clearing a line is simply
+  // dropping the matching keys. Column widths, row heights, merges and freeze
+  // panes are left intact -- this clears contents, not structure.
+  var KeysToRemove := TList<string>.Create;
+  try
+    for var Pair in FCells do
+    begin
+      var Col, Row: Integer;
+      ParseCellAddress(Pair.Key, Col, Row);
+      if (AIsColumn and (Col = AIndex)) or ((not AIsColumn) and (Row = AIndex)) then
+        KeysToRemove.Add(Pair.Key);
+    end;
+    for var Key in KeysToRemove do
+      FCells.Remove(Key);
+  finally
+    KeysToRemove.Free;
+  end;
+end;
+
+procedure TExcelSheet.DeleteColumn(const Column: string);
+begin
+  DeleteLine(True, ColumnLetterToNumber(Column));
+end;
+
+procedure TExcelSheet.DeleteRow(const Row: Integer);
+begin
+  DeleteLine(False, Row);
+end;
+
+procedure TExcelSheet.DeleteLine(const AIsColumn: Boolean; const AIndex: Integer);
+begin
+  // 1. Cells: rebuild the address-keyed dictionary, dropping the deleted line and
+  //    shifting everything past it back by one. The cell (and its styling) moves as one.
+  var NewCells := TDictionary<string, IExcelCell>.Create;
+  for var Pair in FCells do
+  begin
+    var Col, Row: Integer;
+    ParseCellAddress(Pair.Key, Col, Row);
+    var Axis := Col;
+    if not AIsColumn then
+      Axis := Row;
+    if Axis = AIndex then
+      Continue;
+    if Axis > AIndex then
+      Dec(Axis);
+    if AIsColumn then
+      NewCells.Add(ColumnNumberToLetters(Axis) + IntToStr(Row), Pair.Value)
+    else
+      NewCells.Add(ColumnNumberToLetters(Col) + IntToStr(Axis), Pair.Value);
+  end;
+  FCells.Free;
+  FCells := NewCells;
+
+  // 2. Column widths (column delete) or row heights (row delete) shift the same way.
+  if AIsColumn then
+  begin
+    var NewWidths := TDictionary<string, Double>.Create;
+    for var Pair in FColumnWidths do
+    begin
+      var ColIdx := ColumnLetterToNumber(Pair.Key);
+      if ColIdx = AIndex then
+        Continue;
+      if ColIdx > AIndex then
+        Dec(ColIdx);
+      NewWidths.Add(ColumnNumberToLetters(ColIdx), Pair.Value);
+    end;
+    FColumnWidths.Free;
+    FColumnWidths := NewWidths;
+  end
+  else
+  begin
+    var NewHeights := TDictionary<Integer, Double>.Create;
+    for var Pair in FRowHeights do
+    begin
+      var RowIdx := Pair.Key;
+      if RowIdx = AIndex then
+        Continue;
+      if RowIdx > AIndex then
+        Dec(RowIdx);
+      NewHeights.Add(RowIdx, Pair.Value);
+    end;
+    FRowHeights.Free;
+    FRowHeights := NewHeights;
+  end;
+
+  // 3. Merged ranges: shrink, shift or drop each range on the deleted axis.
+  var NewMerges := TList<string>.Create;
+  for var Range in FMergedRanges do
+  begin
+    const ColonPos = Pos(':', Range);
+    if ColonPos = 0 then
+      Continue;
+    var C1, R1, C2, R2: Integer;
+    ParseCellAddress(Copy(Range, 1, ColonPos - 1), C1, R1);
+    ParseCellAddress(Copy(Range, ColonPos + 1, Length(Range)), C2, R2);
+
+    if AIsColumn then
+    begin
+      const Lo = Min(C1, C2);
+      const Hi = Max(C1, C2);
+      if (Lo = AIndex) and (Hi = AIndex) then
+        Continue;
+      C1 := ClampLo(Lo, AIndex);
+      C2 := ClampHi(Hi, AIndex);
+    end
+    else
+    begin
+      const Lo = Min(R1, R2);
+      const Hi = Max(R1, R2);
+      if (Lo = AIndex) and (Hi = AIndex) then
+        Continue;
+      R1 := ClampLo(Lo, AIndex);
+      R2 := ClampHi(Hi, AIndex);
+    end;
+
+    // A range that has collapsed to a single cell is no longer a merge.
+    if (C1 = C2) and (R1 = R2) then
+      Continue;
+    NewMerges.Add(ColumnNumberToLetters(C1) + IntToStr(R1) + ':' + ColumnNumberToLetters(C2) + IntToStr(R2));
+  end;
+  FMergedRanges.Free;
+  FMergedRanges := NewMerges;
+
+  // 4. Frozen pane counts: a deleted line at or before the frozen boundary shrinks it.
+  if AIsColumn then
+  begin
+    if AIndex <= FFrozenColumns then
+      Dec(FFrozenColumns);
+  end
+  else if AIndex <= FFrozenRows then
+    Dec(FFrozenRows);
+
+  // 5. Formulas: rewrite references across the whole workbook so cross-sheet refs to
+  //    this sheet are adjusted too. Falls back to self-scope if there is no owner.
+  if FOwner <> nil then
+    FOwner.ApplyFormulaDelete(Self, AIsColumn, AIndex)
+  else
+    RewriteOwnFormulas(AIsColumn, AIndex);
+end;
+
+procedure TExcelSheet.RewriteOwnFormulas(const AIsColumn: Boolean; const AIndex: Integer);
+begin
+  for var Pair in FCells do
+  begin
+    var Cell := Pair.Value as TExcelCell;
+    if Cell.GetHasFormula then
+    begin
+      const NewFormula = TransformFormulaForLineDelete(Cell.GetFormula, FName, FName, AIsColumn, AIndex);
+      if NewFormula <> Cell.GetFormula then
+        Cell.FFormula := NewFormula;
+    end;
+  end;
 end;
 
 { TExcelWorkbook }
@@ -1635,6 +2059,7 @@ begin
     if Match.Groups.Count > 1 then
     begin
       const Sheet = TExcelSheet.Create(Match.Groups[1].Value);
+      Sheet.FOwner := Self;
       const StateMatch = TRegEx.Match(Match.Groups[2].Value, 'state="([^"]+)"', [roIgnoreCase]);
       if StateMatch.Success then
       begin
@@ -2451,7 +2876,9 @@ end;
 
 function TExcelWorkbook.AddSheet(const Name: string): IExcelSheet;
 begin
-  Result := TExcelSheet.Create(Name);
+  var Sheet := TExcelSheet.Create(Name);
+  Sheet.FOwner := Self;
+  Result := Sheet;
   FSheets.Add(Result);
 end;
 
@@ -2461,6 +2888,47 @@ begin
     if SameText(Sheet.Name, Name) then
       Exit(Sheet);
   Result := nil;
+end;
+
+procedure TExcelWorkbook.RemoveSheet(Index: Integer);
+begin
+  if (Index < 0) or (Index >= FSheets.Count) then
+    raise EExcelWorkbookException.CreateFmt('Sheet index out of range: %d', [Index]);
+  // Excel refuses to open a workbook with no sheets, so keep at least one.
+  if FSheets.Count <= 1 then
+    raise EExcelWorkbookException.Create('A workbook must retain at least one sheet');
+  // sheetId/r:id and the sheetN.xml part names are derived positionally from the
+  // sheet order on save, so removing an entry is all that is needed.
+  FSheets.Delete(Index);
+end;
+
+procedure TExcelWorkbook.RemoveSheetByName(const Name: string);
+begin
+  for var I := 0 to FSheets.Count - 1 do
+    if SameText(FSheets[I].Name, Name) then
+    begin
+      RemoveSheet(I);
+      Exit;
+    end;
+  raise EExcelWorkbookException.CreateFmt('Sheet not found: "%s"', [Name]);
+end;
+
+procedure TExcelWorkbook.ApplyFormulaDelete(const ATargetSheet: TExcelSheet; const AIsColumn: Boolean; const ALineIndex: Integer);
+begin
+  for var SheetIntf in FSheets do
+  begin
+    var Sheet := SheetIntf as TExcelSheet;
+    for var Pair in Sheet.Cells do
+    begin
+      var Cell := Pair.Value as TExcelCell;
+      if Cell.GetHasFormula then
+      begin
+        const NewFormula = TransformFormulaForLineDelete(Cell.GetFormula, ATargetSheet.GetName, Sheet.GetName, AIsColumn, ALineIndex);
+        if NewFormula <> Cell.GetFormula then
+          Cell.FFormula := NewFormula;
+      end;
+    end;
+  end;
 end;
 
 end.
