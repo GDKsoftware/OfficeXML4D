@@ -58,6 +58,9 @@ type
 
     [Test]
     procedure GetNote_UnsetCell_ReturnsEmptyString;
+
+    [Test]
+    procedure SaveToFile_WithNote_VmlAnchorsNoteToItsCell;
   end;
 
 implementation
@@ -340,6 +343,28 @@ begin
   Workbook2.LoadFromFile(FTempFile);
   Assert.AreEqual('', Workbook2.Sheets[0].Note['A1'], 'Sheet1 should still have no note after round-trip');
   Assert.AreEqual('Note on sheet 2', Workbook2.Sheets[1].Note['A1'], 'Sheet2''s note should round-trip correctly');
+end;
+
+procedure TExcelNotesTests.SaveToFile_WithNote_VmlAnchorsNoteToItsCell;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B3'].AsString := 'Data';
+  Sheet.Note['B3'] := 'Note text';
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const VmlXml = Package.GetPartContent('xl/drawings/vmlDrawing1.vml');
+    // B3 is column 2 (0-based 1), row 3 (0-based 2). The anchor starts one column to the
+    // right of the cell and spans two columns / four rows, so each note box sits next to
+    // its own cell instead of every box landing on the same fixed position.
+    Assert.IsTrue(Pos('<x:Anchor>2, 15, 2, 2, 4, 15, 6, 4</x:Anchor>', VmlXml) > 0,
+      'Each note must carry an x:Anchor positioned relative to its own cell');
+  finally
+    Package.Free;
+  end;
 end;
 
 initialization

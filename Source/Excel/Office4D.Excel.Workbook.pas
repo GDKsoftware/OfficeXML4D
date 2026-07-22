@@ -989,21 +989,32 @@ begin
 end;
 
 procedure TExcelSheet.ClearLine(const AIsColumn: Boolean; const AIndex: Integer);
+
+  function IsOnLine(const AAddress: string): Boolean;
+  begin
+    var Col, Row: Integer;
+    ParseCellAddress(AAddress, Col, Row);
+    Result := (AIsColumn and (Col = AIndex)) or ((not AIsColumn) and (Row = AIndex));
+  end;
+
 begin
-  // Cells are stored sparse and keyed by address, so clearing a line is simply
-  // dropping the matching keys. Column widths, row heights, merges and freeze
+  // Cells and notes are stored sparse and keyed by address, so clearing a line is
+  // simply dropping the matching keys. Column widths, row heights, merges and freeze
   // panes are left intact -- this clears contents, not structure.
   var KeysToRemove := TList<string>.Create;
   try
     for var Pair in FCells do
-    begin
-      var Col, Row: Integer;
-      ParseCellAddress(Pair.Key, Col, Row);
-      if (AIsColumn and (Col = AIndex)) or ((not AIsColumn) and (Row = AIndex)) then
+      if IsOnLine(Pair.Key) then
         KeysToRemove.Add(Pair.Key);
-    end;
     for var Key in KeysToRemove do
       FCells.Remove(Key);
+
+    KeysToRemove.Clear;
+    for var Pair in FNotes do
+      if IsOnLine(Pair.Key) then
+        KeysToRemove.Add(Pair.Key);
+    for var Key in KeysToRemove do
+      FNotes.Remove(Key);
   finally
     KeysToRemove.Free;
   end;
@@ -1042,6 +1053,28 @@ begin
   end;
   FCells.Free;
   FCells := NewCells;
+
+  // 1b. Notes are keyed by address just like cells, so they shift (and drop on the
+  //     deleted line) the same way, otherwise a note would detach from its cell.
+  var NewNotes := TDictionary<string, string>.Create;
+  for var Pair in FNotes do
+  begin
+    var Col, Row: Integer;
+    ParseCellAddress(Pair.Key, Col, Row);
+    var Axis := Col;
+    if not AIsColumn then
+      Axis := Row;
+    if Axis = AIndex then
+      Continue;
+    if Axis > AIndex then
+      Dec(Axis);
+    if AIsColumn then
+      NewNotes.Add(ColumnNumberToLetters(Axis) + IntToStr(Row), Pair.Value)
+    else
+      NewNotes.Add(ColumnNumberToLetters(Col) + IntToStr(Axis), Pair.Value);
+  end;
+  FNotes.Free;
+  FNotes := NewNotes;
 
   // 2. Column widths (column delete) or row heights (row delete) shift the same way.
   if AIsColumn then
@@ -1867,7 +1900,14 @@ begin
       SB.Append('<v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/>');
       SB.Append('<v:path o:connecttype="none"/>');
       SB.Append('<v:textbox style=''mso-direction-alt:auto''><div style=''text-align:left''></div></v:textbox>');
+      // x:Anchor positions the note box relative to its own cell (from/to column and row
+      // with in-cell offsets), so each note sits next to its cell instead of every box
+      // landing on the same fixed margin. This mirrors Excel's default: the box starts one
+      // column to the right, spans two columns and about four rows.
+      const Anchor = Format('%d, 15, %d, 2, %d, 15, %d, 4',
+        [ZeroCol + 1, ZeroRow, ZeroCol + 3, ZeroRow + 4]);
       SB.Append('<x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/>' +
+        '<x:Anchor>' + Anchor + '</x:Anchor>' +
         '<x:AutoFill>False</x:AutoFill>' +
         '<x:Row>' + IntToStr(ZeroRow) + '</x:Row>' +
         '<x:Column>' + IntToStr(ZeroCol) + '</x:Column>' +

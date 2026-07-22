@@ -84,6 +84,13 @@ type
 
     [Test]
     procedure DeleteRow_Formula_RefBelowDeleted_ShiftsUp;
+
+    // --- Notes travel with the reflow ---
+    [Test]
+    procedure DeleteColumn_Note_ShiftsAndDropsDeletedColumn;
+
+    [Test]
+    procedure DeleteRow_Note_ShiftsUp;
   end;
 
 implementation
@@ -318,6 +325,28 @@ begin
   FSheet.DeleteRow(3);
 
   Assert.AreEqual('A4', FSheet.Cell['A1'].Formula, 'A reference below the deleted row shifts up');
+end;
+
+procedure TExcelDeleteColumnRowTests.DeleteColumn_Note_ShiftsAndDropsDeletedColumn;
+begin
+  FSheet.Note['C1'] := 'note on C';
+  FSheet.Note['D1'] := 'note on D';
+
+  FSheet.DeleteColumn('C');
+
+  Assert.AreEqual('note on D', FSheet.Note['C1'], 'The note from column D shifts into C with the cells');
+  Assert.AreEqual('', FSheet.Note['D1'], 'Nothing remains at the old column D address');
+end;
+
+procedure TExcelDeleteColumnRowTests.DeleteRow_Note_ShiftsUp;
+begin
+  FSheet.Note['A2'] := 'note on row 2';
+  FSheet.Note['A5'] := 'note on row 5';
+
+  FSheet.DeleteRow(2);
+
+  Assert.AreEqual('', FSheet.Note['A2'], 'The note on the deleted row is gone');
+  Assert.AreEqual('note on row 5', FSheet.Note['A4'], 'The note below the deleted row shifts up');
 end;
 
 initialization

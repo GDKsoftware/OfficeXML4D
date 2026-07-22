@@ -36,6 +36,9 @@ type
 
     [Test]
     procedure ClearRow_NonExisting_IsNoOp;
+
+    [Test]
+    procedure ClearColumn_RemovesNoteOnThatColumn;
   end;
 
 implementation
@@ -115,6 +118,18 @@ begin
   FSheet.ClearRow(99);
 
   Assert.IsTrue(FSheet.Cells.ContainsKey('A1'));
+end;
+
+procedure TExcelClearColumnRowTests.ClearColumn_RemovesNoteOnThatColumn;
+begin
+  FSheet.Cell['B1'].AsString := 'b1';
+  FSheet.Note['B1'] := 'note on B';
+  FSheet.Note['A1'] := 'note on A';
+
+  FSheet.ClearColumn('B');
+
+  Assert.AreEqual('', FSheet.Note['B1'], 'Clearing a column also clears its notes');
+  Assert.AreEqual('note on A', FSheet.Note['A1'], 'A note on a neighbouring column is untouched');
 end;
 
 initialization
