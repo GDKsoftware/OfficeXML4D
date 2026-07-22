@@ -209,6 +209,15 @@ type
 
     [Test]
     procedure SaveToFile_AllSheetsHidden_RaisesException;
+
+    [Test]
+    procedure RoundTrip_CustomNumberFormat_PreservesFormat;
+
+    [Test]
+    procedure RoundTrip_CustomDateFormat_PreservesFormat;
+
+    [Test]
+    procedure LoadFromFile_ExcelAuthoredNumberFormats_ArePreserved;
   end;
 
 implementation
@@ -1288,6 +1297,102 @@ begin
     end,
     EExcelWorkbookException
   );
+end;
+
+procedure TExcelWriteTests.RoundTrip_CustomNumberFormat_PreservesFormat;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 1.5;
+  Sheet.Cell['A1'].NumberFormat := '0.000';
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  Assert.AreEqual('0.000', Workbook2.Sheets[0].Cell['A1'].NumberFormat, 'Custom number format should survive a load');
+
+  // Save the reloaded workbook again: the format must also survive a full
+  // load-save cycle, not just live on the in-memory cell.
+  Workbook2.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const StylesXml = Package.GetPartContent('xl/styles.xml');
+    Assert.IsTrue(Pos('formatCode="0.000"', StylesXml) > 0, 'Resaved styles.xml should still contain the custom format');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.RoundTrip_CustomDateFormat_PreservesFormat;
+begin
+  const TestValue = EncodeDate(2024, 6, 15) + EncodeTime(14, 30, 0, 0);
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsDateTime := TestValue;
+  Sheet.Cell['A1'].NumberFormat := 'dd.mm.yyyy hh:mm';
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  Assert.AreEqual('dd.mm.yyyy hh:mm', Workbook2.Sheets[0].Cell['A1'].NumberFormat, 'Custom date format should survive a load');
+  Assert.AreEqual(Double(TestValue), Double(Workbook2.Sheets[0].Cell['A1'].AsDateTime), 1E-8, 'Date value should be preserved');
+end;
+
+procedure TExcelWriteTests.LoadFromFile_ExcelAuthoredNumberFormats_ArePreserved;
+
+  procedure AddPart(const Zip: TZipFile; const PartName, Content: string);
+  begin
+    Zip.Add(TEncoding.UTF8.GetBytes(Content), PartName);
+  end;
+
+const
+  SpreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  OfficeDocRelsNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+begin
+  // Excel-authored files reference built-in formats (like 9 = "0%") by id only
+  // and start custom numFmt ids at 164, one below the 165 this library uses,
+  // so this file cannot be produced through the library's own save path.
+  const SourceFile = TPath.Combine(TPath.GetTempPath, 'excel_authored_' + TGUID.NewGuid.ToString + '.xlsx');
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(SourceFile, zmWrite);
+    AddPart(Zip, 'xl/workbook.xml',
+      '<workbook xmlns="' + SpreadsheetNs + '" xmlns:r="' + OfficeDocRelsNs + '">' +
+      '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>');
+    AddPart(Zip, 'xl/styles.xml',
+      '<styleSheet xmlns="' + SpreadsheetNs + '">' +
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.000"/></numFmts>' +
+      '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellXfs count="3">' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>' +
+      '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>' +
+      '<xf numFmtId="9" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>' +
+      '</cellXfs></styleSheet>');
+    AddPart(Zip, 'xl/worksheets/sheet1.xml',
+      '<worksheet xmlns="' + SpreadsheetNs + '"><sheetData>' +
+      '<row r="1"><c r="A1" s="1"><v>1.5</v></c><c r="B1" s="2"><v>0.25</v></c></row>' +
+      '</sheetData></worksheet>');
+    Zip.Close;
+
+    FWorkbook.LoadFromFile(SourceFile);
+    Assert.AreEqual('0.000', FWorkbook.Sheets[0].Cell['A1'].NumberFormat, 'Custom numFmt 164 should be applied to the cell');
+    Assert.AreEqual('0%', FWorkbook.Sheets[0].Cell['B1'].NumberFormat, 'Built-in numFmt 9 should map to its format code');
+
+    FWorkbook.SaveToFile(FTempFile);
+
+    const Workbook2 = TExcelWorkbookFactory.Create;
+    Workbook2.LoadFromFile(FTempFile);
+    Assert.AreEqual('0.000', Workbook2.Sheets[0].Cell['A1'].NumberFormat, 'Custom format should survive a resave');
+    Assert.AreEqual('0%', Workbook2.Sheets[0].Cell['B1'].NumberFormat, 'Built-in format should survive a resave');
+  finally
+    Zip.Free;
+    if TFile.Exists(SourceFile) then
+      TFile.Delete(SourceFile);
+  end;
 end;
 
 initialization

@@ -118,6 +118,11 @@ type
     function GetNote(const Address: string): string;
     procedure SetNote(const Address: string; const Value: string);
 
+    procedure ClearColumn(const Column: string);
+    procedure ClearRow(const Row: Integer);
+    procedure DeleteColumn(const Column: string);
+    procedure DeleteRow(const Row: Integer);
+
     function GetCells: TDictionary<string, IExcelCell>;
 
     property Name: string read GetName;
@@ -142,6 +147,8 @@ type
     function GetMetadata: TDocumentMetadata;
 
     function AddSheet(const Name: string): IExcelSheet;
+    procedure RemoveSheet(Index: Integer);
+    procedure RemoveSheetByName(const Name: string);
 
     property SheetCount: Integer read GetSheetCount;
     property Sheets[Index: Integer]: IExcelSheet read GetSheet;
