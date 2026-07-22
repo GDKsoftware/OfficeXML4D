@@ -253,6 +253,36 @@ begin
 end;
 ```
 
+### Cell Notes
+
+Attach a plain-text note (a legacy cell comment) to any cell:
+
+```pascal
+uses
+  Office4D.Excel;
+
+var
+  Workbook: IExcelWorkbook;
+  Sheet: IExcelSheet;
+begin
+  Workbook := TExcelWorkbookFactory.Create;
+  Sheet := Workbook.AddSheet('Data');
+
+  Sheet.Cell['B2'].AsFloat := 1234.50;
+  Sheet.Note['B2'] := 'Please double-check this figure';
+
+  // Read a note back (empty string if the cell has none)
+  WriteLn(Sheet.Note['B2']);
+
+  // Clear a note by assigning an empty string
+  Sheet.Note['B2'] := '';
+
+  Workbook.SaveToFile('output.xlsx');
+end;
+```
+
+Notes move with the cell when columns or rows are deleted, and are cleared along with the column or row.
+
 ### Stream Support
 
 Both Word and Excel support stream-based I/O:
@@ -328,6 +358,7 @@ Examples/      - Demo application
 - Column widths
 - Merged cells
 - Freeze panes
+- Cell notes (legacy comments, plain text)
 - Shared strings optimization
 - Metadata (author, title, dates)
 
