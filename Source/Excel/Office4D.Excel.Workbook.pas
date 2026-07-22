@@ -169,6 +169,7 @@ type
     FStyleVAlign: TList<TExcelVAlign>;
     FStyleWrapText: TList<Boolean>;
     FStyleIsDate: TList<Boolean>;
+    FStyleNumberFormat: TList<string>;
 
     procedure ParseWorkbook(const Xml: string);
     procedure ParseSharedStrings(const Xml: string);
@@ -715,10 +716,12 @@ begin
   FStyleVAlign := TList<TExcelVAlign>.Create;
   FStyleWrapText := TList<Boolean>.Create;
   FStyleIsDate := TList<Boolean>.Create;
+  FStyleNumberFormat := TList<string>.Create;
 end;
 
 destructor TExcelWorkbook.Destroy;
 begin
+  FStyleNumberFormat.Free;
   FStyleIsDate.Free;
   FStyleWrapText.Free;
   FStyleVAlign.Free;
@@ -1731,6 +1734,33 @@ procedure TExcelWorkbook.ParseStyles(const Xml: string);
               ((NumFmtId >= 45) and (NumFmtId <= 47));
   end;
 
+  // Format codes for the non-date built-in numFmtIds (ECMA-376 part 1,
+  // section 18.8.30). Files authored by Excel reference these by id only,
+  // without a <numFmt> element, so the codes have to be supplied here to
+  // survive a round-trip (they are re-emitted as custom formats on save).
+  function BuiltInFormatCode(const NumFmtId: Integer): string;
+  begin
+    case NumFmtId of
+      1: Result := '0';
+      2: Result := '0.00';
+      3: Result := '#,##0';
+      4: Result := '#,##0.00';
+      9: Result := '0%';
+      10: Result := '0.00%';
+      11: Result := '0.00E+00';
+      12: Result := '# ?/?';
+      13: Result := '# ??/??';
+      37: Result := '#,##0 ;(#,##0)';
+      38: Result := '#,##0 ;[Red](#,##0)';
+      39: Result := '#,##0.00;(#,##0.00)';
+      40: Result := '#,##0.00;[Red](#,##0.00)';
+      48: Result := '##0.0E+0';
+      49: Result := '@';
+    else
+      Result := '';
+    end;
+  end;
+
   // Heuristic used to classify a custom (non-built-in) format code, e.g.
   // "yyyy-mm-dd" or "dd/mm/yyyy hh:mm". Quoted literal text and bracketed
   // sections (colour tags like [Red], locale tags like [$-409], or
@@ -1778,6 +1808,7 @@ begin
   FStyleVAlign.Clear;
   FStyleWrapText.Clear;
   FStyleIsDate.Clear;
+  FStyleNumberFormat.Clear;
 
   var FontsBold := TList<Boolean>.Create;
   var FontsItalic := TList<Boolean>.Create;
@@ -1929,11 +1960,22 @@ begin
 
         var CustomFormatCode: string;
         if IsBuiltInDateNumFmtId(NumFmtId) then
-          FStyleIsDate.Add(True)
+        begin
+          // Built-in date formats are re-emitted as numFmtId 14/22 on save,
+          // so no format code needs to be carried on the cell.
+          FStyleIsDate.Add(True);
+          FStyleNumberFormat.Add('');
+        end
         else if CustomNumFmts.TryGetValue(NumFmtId, CustomFormatCode) then
-          FStyleIsDate.Add(IsDateFormatCode(CustomFormatCode))
+        begin
+          FStyleIsDate.Add(IsDateFormatCode(CustomFormatCode));
+          FStyleNumberFormat.Add(CustomFormatCode);
+        end
         else
+        begin
           FStyleIsDate.Add(False);
+          FStyleNumberFormat.Add(BuiltInFormatCode(NumFmtId));
+        end;
 
         const FontIdMatch = TRegEx.Match(XfXml, 'fontId="(\d+)"', [roIgnoreCase]);
         var FontId := 0;
@@ -2316,6 +2358,8 @@ begin
             Cell.FVAlign := FStyleVAlign[StyleIdx];
           if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
             Cell.FWrapText := True;
+          if (StyleIdx < FStyleNumberFormat.Count) and (FStyleNumberFormat[StyleIdx] <> '') then
+            Cell.FNumberFormat := FStyleNumberFormat[StyleIdx];
         end;
       end;
     end;
@@ -2374,6 +2418,8 @@ begin
           Cell.FVAlign := FStyleVAlign[StyleIdx];
         if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
           Cell.FWrapText := True;
+        if (StyleIdx < FStyleNumberFormat.Count) and (FStyleNumberFormat[StyleIdx] <> '') then
+          Cell.FNumberFormat := FStyleNumberFormat[StyleIdx];
       end;
     end;
 
