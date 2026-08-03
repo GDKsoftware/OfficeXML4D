@@ -33,14 +33,12 @@ uses
   System.RegularExpressions,
   Office4D.Metadata,
   Office4D.Relationships,
+  Office4D.Types,
   Office4D.Xml;
 
 const
-  RelTypeOfficeDocument = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
 
-  PartRootRels = '_rels/.rels';
   PartPresentationRels = 'ppt/_rels/presentation.xml.rels';
-  PartCoreProps = 'docProps/core.xml';
   PartPptPrefix = 'ppt/';
 
 { TPowerPointReader }
@@ -96,15 +94,7 @@ begin
     RootRels.Free;
   end;
 
-  if FPackage.PartExists(PartCoreProps) then
-  begin
-    var MetaParser := TMetadataParser.Create;
-    try
-      FContent.Metadata := MetaParser.Parse(FPackage.GetPartContent(PartCoreProps));
-    finally
-      MetaParser.Free;
-    end;
-  end;
+  FContent.Metadata := TMetadataParser.ParsePackage(FPackage);
 end;
 
 procedure TPowerPointReader.ParseSlideXml(const Xml: string);

@@ -54,14 +54,11 @@ uses
   System.RegularExpressions,
   System.Generics.Defaults,
   Office4D.Errors,
+  Office4D.Types,
   Office4D.Xml;
 
 const
-  XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
-  RelationshipsNs = 'http://schemas.openxmlformats.org/package/2006/relationships';
-  ContentTypesNs = 'http://schemas.openxmlformats.org/package/2006/content-types';
   SpreadsheetNs = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-  OfficeDocRelsNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
   PartSharedStrings = 'xl/sharedStrings.xml';
   PartStyles = 'xl/styles.xml';
@@ -151,7 +148,7 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<Types xmlns="' + ContentTypesNs + '">');
+    SB.Append('<Types xmlns="' + NsContentTypes + '">');
     SB.Append('<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>');
     SB.Append('<Default Extension="xml" ContentType="application/xml"/>');
 
@@ -192,8 +189,8 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<Relationships xmlns="' + RelationshipsNs + '">');
-    SB.Append('<Relationship Id="rId1" Type="' + OfficeDocRelsNs + '/officeDocument" Target="xl/workbook.xml"/>');
+    SB.Append('<Relationships xmlns="' + NsPackageRelationships + '">');
+    SB.Append('<Relationship Id="rId1" Type="' + NsOfficeDocumentRelationships + '/officeDocument" Target="xl/workbook.xml"/>');
     SB.Append('</Relationships>');
     Result := SB.ToString;
   finally
@@ -217,7 +214,7 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<workbook xmlns="' + SpreadsheetNs + '" xmlns:r="' + OfficeDocRelsNs + '">');
+    SB.Append('<workbook xmlns="' + SpreadsheetNs + '" xmlns:r="' + NsOfficeDocumentRelationships + '">');
     SB.Append('<sheets>');
     for var I := 0 to FContent.Sheets.Count - 1 do
     begin
@@ -241,11 +238,11 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<Relationships xmlns="' + RelationshipsNs + '">');
+    SB.Append('<Relationships xmlns="' + NsPackageRelationships + '">');
     for var I := 0 to FContent.Sheets.Count - 1 do
-      SB.Append('<Relationship Id="rId' + IntToStr(I + 1) + '" Type="' + OfficeDocRelsNs + '/worksheet" Target="worksheets/sheet' + IntToStr(I + 1) + '.xml"/>');
-    SB.Append('<Relationship Id="rId' + IntToStr(FContent.Sheets.Count + 1) + '" Type="' + OfficeDocRelsNs + '/sharedStrings" Target="sharedStrings.xml"/>');
-    SB.Append('<Relationship Id="rId' + IntToStr(FContent.Sheets.Count + 2) + '" Type="' + OfficeDocRelsNs + '/styles" Target="styles.xml"/>');
+      SB.Append('<Relationship Id="rId' + IntToStr(I + 1) + '" Type="' + NsOfficeDocumentRelationships + '/worksheet" Target="worksheets/sheet' + IntToStr(I + 1) + '.xml"/>');
+    SB.Append('<Relationship Id="rId' + IntToStr(FContent.Sheets.Count + 1) + '" Type="' + NsOfficeDocumentRelationships + '/sharedStrings" Target="sharedStrings.xml"/>');
+    SB.Append('<Relationship Id="rId' + IntToStr(FContent.Sheets.Count + 2) + '" Type="' + NsOfficeDocumentRelationships + '/styles" Target="styles.xml"/>');
     SB.Append('</Relationships>');
     Result := SB.ToString;
   finally
@@ -258,7 +255,7 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<worksheet xmlns="' + SpreadsheetNs + '" xmlns:r="' + OfficeDocRelsNs + '">');
+    SB.Append('<worksheet xmlns="' + SpreadsheetNs + '" xmlns:r="' + NsOfficeDocumentRelationships + '">');
 
     const HasFrozenPanes = (Sheet.FrozenRows > 0) or (Sheet.FrozenColumns > 0);
     if HasFrozenPanes then
@@ -552,10 +549,10 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<Relationships xmlns="' + RelationshipsNs + '">');
-    SB.Append('<Relationship Id="rId1" Type="' + OfficeDocRelsNs + '/vmlDrawing" Target="../drawings/vmlDrawing' +
+    SB.Append('<Relationships xmlns="' + NsPackageRelationships + '">');
+    SB.Append('<Relationship Id="rId1" Type="' + NsOfficeDocumentRelationships + '/vmlDrawing" Target="../drawings/vmlDrawing' +
       IntToStr(CommentsFileIndex) + '.vml"/>');
-    SB.Append('<Relationship Id="rId2" Type="' + OfficeDocRelsNs + '/comments" Target="../comments' +
+    SB.Append('<Relationship Id="rId2" Type="' + NsOfficeDocumentRelationships + '/comments" Target="../comments' +
       IntToStr(CommentsFileIndex) + '.xml"/>');
     SB.Append('</Relationships>');
     Result := SB.ToString;
@@ -940,6 +937,5 @@ begin
     Colors.Free;
   end;
 end;
-
 
 end.

@@ -282,7 +282,6 @@ begin
   Result.AddRun(Text);
 end;
 
-
 { TPowerPointContent }
 
 constructor TPowerPointContent.Create;

@@ -45,19 +45,15 @@ implementation
 
 uses
   System.SysUtils,
+  Office4D.Types,
   Office4D.Xml;
 
 const
-  XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
-  RelationshipsNs = 'http://schemas.openxmlformats.org/package/2006/relationships';
-  ContentTypesNs = 'http://schemas.openxmlformats.org/package/2006/content-types';
   WordprocessingNs = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
   DrawingNs = 'http://schemas.openxmlformats.org/drawingml/2006/main';
   WpDrawingNs = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
   PictureNs = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
-  RelationshipsDocNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-  PartRootRels = '_rels/.rels';
   PartDocumentRels = 'word/_rels/document.xml.rels';
 
 { TWordDocumentWriter }
@@ -86,6 +82,7 @@ function TWordDocumentWriter.GetHyperlinkId(const Url: string; const Hyperlinks:
 begin
   Result := Hyperlinks.IndexOf(Url) + 1;
 end;
+
 function TWordDocumentWriter.HasListParagraphs: Boolean;
 begin
   for var Para in FContent.Paragraphs do
@@ -93,6 +90,7 @@ begin
       Exit(True);
   Result := False;
 end;
+
 function TWordDocumentWriter.GenerateNumberingXml: string;
 begin
   Result :=
@@ -156,7 +154,7 @@ begin
 
   Result :=
     XmlDeclaration + sLineBreak +
-    '<Types xmlns="' + ContentTypesNs + '">' +
+    '<Types xmlns="' + NsContentTypes + '">' +
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
     '<Default Extension="xml" ContentType="application/xml"/>' +
     ImageDefaults +
@@ -171,7 +169,7 @@ function TWordDocumentWriter.GenerateRootRelsXml: string;
 begin
   Result :=
     XmlDeclaration + sLineBreak +
-    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationships xmlns="' + NsPackageRelationships + '">' +
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
     '</Relationships>';
 end;
@@ -232,7 +230,7 @@ begin
 
     Result :=
       XmlDeclaration + sLineBreak +
-      '<Relationships xmlns="' + RelationshipsNs + '">' +
+      '<Relationships xmlns="' + NsPackageRelationships + '">' +
       RelsContent +
       '</Relationships>';
   finally
@@ -240,6 +238,7 @@ begin
     Images.Free;
   end;
 end;
+
 function TWordDocumentWriter.GenerateDocumentXml: string;
 begin
   var Hyperlinks := CollectHyperlinks;
@@ -495,6 +494,7 @@ begin
     Images.Free;
   end;
 end;
+
 procedure TWordDocumentWriter.WriteParts(const Zip: TZipFile);
 begin
   var ContentTypesXml := GenerateContentTypesXml;
@@ -528,6 +528,7 @@ begin
     Images.Free;
   end;
 end;
+
 function TWordDocumentWriter.HasHeader: Boolean;
 begin
   Result := FContent.Header.Text <> '';
@@ -537,6 +538,7 @@ function TWordDocumentWriter.HasFooter: Boolean;
 begin
   Result := FContent.Footer.Text <> '';
 end;
+
 function TWordDocumentWriter.GenerateBorderXml(const ElementName: string; const Border: TTableBorder): string;
 begin
   var StyleValue := 'single';
@@ -604,7 +606,7 @@ begin
                 '<pic:cNvPicPr/>' +
               '</pic:nvPicPr>' +
               '<pic:blipFill>' +
-                '<a:blip xmlns:r="' + RelationshipsDocNs + '" r:embed="' + RelId + '"/>' +
+                '<a:blip xmlns:r="' + NsOfficeDocumentRelationships + '" r:embed="' + RelId + '"/>' +
                 '<a:stretch><a:fillRect/></a:stretch>' +
               '</pic:blipFill>' +
               '<pic:spPr>' +

@@ -1114,7 +1114,6 @@ begin
   end;
 end;
 
-
 { TExcelWorkbookContent }
 
 constructor TExcelWorkbookContent.Create;

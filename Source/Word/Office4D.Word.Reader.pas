@@ -13,8 +13,8 @@ type
   /// <summary>
   /// Fills a TWordDocumentContent from an opened .docx package. Reading is
   /// structural: elements are located with TXml.FindElements, which knows about
-  /// nesting, so a w:p inside a shape's text box is dealt with deliberately
-  /// rather than cutting the hosting paragraph short.
+  /// nesting, so a w:p inside a shape's text box is a paragraph of its own and
+  /// not the end of the paragraph hosting the shape.
   /// </summary>
   TWordDocumentReader = class
   private
@@ -53,8 +53,6 @@ uses
 
 const
   PartDocumentRels = 'word/_rels/document.xml.rels';
-  PartRootRels = '_rels/.rels';
-  PartCoreProps = 'docProps/core.xml';
   PartWordPrefix = 'word/';
   KeyHeader = '__header__';
   KeyFooter = '__footer__';
@@ -129,15 +127,7 @@ end;
 
 procedure TWordDocumentReader.ReadMetadata;
 begin
-  if not FPackage.PartExists(PartCoreProps) then
-    Exit;
-
-  var MetaParser := TMetadataParser.Create;
-  try
-    FContent.Metadata := MetaParser.Parse(FPackage.GetPartContent(PartCoreProps));
-  finally
-    MetaParser.Free;
-  end;
+  FContent.Metadata := TMetadataParser.ParsePackage(FPackage);
 end;
 
 procedure TWordDocumentReader.ParseDocumentXml(const XmlContent: string;

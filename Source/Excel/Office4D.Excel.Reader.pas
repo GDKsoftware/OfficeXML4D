@@ -66,6 +66,7 @@ uses
   System.RegularExpressions,
   Office4D.Metadata,
   Office4D.Relationships,
+  Office4D.Types,
   Office4D.Xml;
 
 const
@@ -82,9 +83,6 @@ const
     $003366, $339966, $003300, $333300, $993300, $993366, $333399, $333333   // 56-63
   );
 
-  OfficeDocRelsNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-
-  PartCoreProps = 'docProps/core.xml';
   PartSharedStrings = 'xl/sharedStrings.xml';
   PartStyles = 'xl/styles.xml';
   PartWorkbook = 'xl/workbook.xml';
@@ -981,7 +979,6 @@ begin
   inherited;
 end;
 
-
 procedure TExcelWorkbookReader.Read(const Package: TOXMLPackage);
 begin
   ReadMetadata(Package);
@@ -1000,15 +997,7 @@ end;
 
 procedure TExcelWorkbookReader.ReadMetadata(const Package: TOXMLPackage);
 begin
-  if not Package.PartExists(PartCoreProps) then
-    Exit;
-
-  var Parser := TMetadataParser.Create;
-  try
-    FContent.Metadata := Parser.Parse(Package.GetPartContent(PartCoreProps));
-  finally
-    Parser.Free;
-  end;
+  FContent.Metadata := TMetadataParser.ParsePackage(Package);
 end;
 
 procedure TExcelWorkbookReader.ReadSheets(const Package: TOXMLPackage);
@@ -1043,7 +1032,7 @@ begin
   var SheetRels := TRelationships.Create;
   try
     SheetRels.LoadFromXml(Package.GetPartContent(SheetRelsPath));
-    const CommentsTarget = SheetRels.GetTargetByType(OfficeDocRelsNs + '/comments');
+    const CommentsTarget = SheetRels.GetTargetByType(NsOfficeDocumentRelationships + '/comments');
     if CommentsTarget = '' then
       Exit;
 

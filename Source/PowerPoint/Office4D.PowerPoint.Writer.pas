@@ -40,23 +40,18 @@ implementation
 
 uses
   System.SysUtils,
+  Office4D.Types,
   Office4D.Xml;
 
 const
-  XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
-  ContentTypesNs = 'http://schemas.openxmlformats.org/package/2006/content-types';
-  RelationshipsNs = 'http://schemas.openxmlformats.org/package/2006/relationships';
   PresentationMLNs = 'http://schemas.openxmlformats.org/presentationml/2006/main';
   DrawingMLNs = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-  DocRelationshipsNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-  RelTypeOfficeDocument = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
   RelTypeSlide = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide';
   RelTypeSlideMaster = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster';
   RelTypeSlideLayout = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout';
   RelTypeTheme = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme';
 
-  PartRootRels = '_rels/.rels';
   PartPresentation = 'ppt/presentation.xml';
   PartPresentationRels = 'ppt/_rels/presentation.xml.rels';
   PartSlideMaster = 'ppt/slideMasters/slideMaster1.xml';
@@ -66,7 +61,7 @@ const
   PartTheme = 'ppt/theme/theme1.xml';
   PartPptPrefix = 'ppt/';
 
-  SlideXmlnsAttrs = ' xmlns:a="' + DrawingMLNs + '" xmlns:r="' + DocRelationshipsNs + '" xmlns:p="' + PresentationMLNs + '"';
+  SlideXmlnsAttrs = ' xmlns:a="' + DrawingMLNs + '" xmlns:r="' + NsOfficeDocumentRelationships + '" xmlns:p="' + PresentationMLNs + '"';
   BulletChar = '&#8226;';
 
 { TPowerPointWriter }
@@ -102,7 +97,7 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<Types xmlns="' + ContentTypesNs + '">');
+    SB.Append('<Types xmlns="' + NsContentTypes + '">');
     SB.Append('<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>');
     SB.Append('<Default Extension="xml" ContentType="application/xml"/>');
     SB.Append('<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>');
@@ -121,7 +116,7 @@ end;
 function TPowerPointWriter.GenerateRootRelsXml: string;
 begin
   Result := XmlDeclaration +
-    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationships xmlns="' + NsPackageRelationships + '">' +
     '<Relationship Id="rId1" Type="' + RelTypeOfficeDocument + '" Target="ppt/presentation.xml"/>' +
     '</Relationships>';
 end;
@@ -154,7 +149,7 @@ begin
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
-    SB.Append('<Relationships xmlns="' + RelationshipsNs + '">');
+    SB.Append('<Relationships xmlns="' + NsPackageRelationships + '">');
     SB.Append('<Relationship Id="rId1" Type="' + RelTypeSlideMaster + '" Target="slideMasters/slideMaster1.xml"/>');
     for var I := 0 to FContent.Slides.Count - 1 do
       SB.Append('<Relationship Id="rId' + IntToStr(2 + I) + '" Type="' + RelTypeSlide + '" Target="slides/slide' + IntToStr(I + 1) + '.xml"/>');
@@ -185,7 +180,7 @@ end;
 function TPowerPointWriter.GenerateSlideMasterRelsXml: string;
 begin
   Result := XmlDeclaration +
-    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationships xmlns="' + NsPackageRelationships + '">' +
     '<Relationship Id="rId1" Type="' + RelTypeSlideLayout + '" Target="../slideLayouts/slideLayout1.xml"/>' +
     '<Relationship Id="rId2" Type="' + RelTypeTheme + '" Target="../theme/theme1.xml"/>' +
     '</Relationships>';
@@ -222,7 +217,7 @@ end;
 function TPowerPointWriter.GenerateSlideLayoutRelsXml: string;
 begin
   Result := XmlDeclaration +
-    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationships xmlns="' + NsPackageRelationships + '">' +
     '<Relationship Id="rId1" Type="' + RelTypeSlideMaster + '" Target="../slideMasters/slideMaster1.xml"/>' +
     '</Relationships>';
 end;
@@ -325,7 +320,7 @@ end;
 function TPowerPointWriter.GenerateSlideRelsXml: string;
 begin
   Result := XmlDeclaration +
-    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationships xmlns="' + NsPackageRelationships + '">' +
     '<Relationship Id="rId1" Type="' + RelTypeSlideLayout + '" Target="../slideLayouts/slideLayout1.xml"/>' +
     '</Relationships>';
 end;
@@ -388,6 +383,5 @@ begin
 
   Result := '<a:r>' + RPr + '<a:t>' + TXml.Escape(Run.Text) + '</a:t></a:r>';
 end;
-
 
 end.
