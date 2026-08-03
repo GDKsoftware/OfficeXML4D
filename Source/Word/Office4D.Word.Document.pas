@@ -215,55 +215,12 @@ const
   ElementParagraph = 'w:p';
   ElementRun = 'w:r';
   ElementHyperlink = 'w:hyperlink';
-  ElementAlternateContent = 'mc:AlternateContent';
-  ElementChoice = 'mc:Choice';
-  ElementFallback = 'mc:Fallback';
 
   TextElementPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>';
 
   /// Matches a w:t element with its text, or a standalone w:br or w:tab, so the
   /// children of a run can be walked in document order.
   RunContentPattern = TextElementPattern + '|<w:t\s*/>|<w:br(?:\s[^>]*)?/?>|<w:tab(?:\s[^>]*)?/?>';
-
-/// <summary>
-/// Returns the branch of an mc:AlternateContent element that a consumer should
-/// read. The first mc:Choice wins; mc:Fallback is only used when no choice is
-/// offered. Reading both would yield the shape's text twice.
-/// </summary>
-function SelectAlternateContentBranch(const AlternateContentXml: string): string;
-begin
-  var Choices := TXml.FindElements(AlternateContentXml, ElementChoice);
-  if Length(Choices) > 0 then
-    Exit(Choices[0].Inner);
-
-  var Fallbacks := TXml.FindElements(AlternateContentXml, ElementFallback);
-  if Length(Fallbacks) > 0 then
-    Exit(Fallbacks[0].Inner);
-
-  Result := '';
-end;
-
-/// <summary>
-/// Replaces every mc:AlternateContent element by the branch that should be
-/// read, so the rest of the parser sees plain content. Each pass unwraps one
-/// nesting level and always shortens the XML, so the loop terminates.
-/// </summary>
-function ReduceAlternateContent(const Xml: string): string;
-begin
-  Result := Xml;
-
-  var Elements := TXml.FindElements(Result, ElementAlternateContent);
-  while Length(Elements) > 0 do
-  begin
-    Result := TXml.ReplaceElements(Result, Elements,
-      function(Element: TXmlElement): string
-      begin
-        Result := SelectAlternateContentBranch(Element.Inner);
-      end);
-
-    Elements := TXml.FindElements(Result, ElementAlternateContent);
-  end;
-end;
 
 { TWordRun }
 
@@ -594,7 +551,7 @@ procedure TWordDocument.ParseDocumentXml(const XmlContent: string; const Hyperli
 begin
   FParagraphs.Clear;
 
-  ParseParagraphs(ReduceAlternateContent(XmlContent), HyperlinkMap);
+  ParseParagraphs(TXml.ReduceAlternateContent(XmlContent), HyperlinkMap);
 end;
 
 procedure TWordDocument.ParseParagraphs(const Xml: string; const HyperlinkMap: TDictionary<string, string>);

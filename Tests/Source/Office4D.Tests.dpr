@@ -1,4 +1,4 @@
-program Office4D.Tests;
+﻿program Office4D.Tests;
 
 {$APPTYPE CONSOLE}
 
@@ -32,6 +32,7 @@ uses
   Office4D.Tests.Word.AlternateContent in 'Office4D.Tests.Word.AlternateContent.pas',
   Office4D.Tests.Word.RunContent in 'Office4D.Tests.Word.RunContent.pas',
   Office4D.Tests.Xml in 'Office4D.Tests.Xml.pas',
+  Office4D.Tests.PowerPoint.AlternateContent in 'Office4D.Tests.PowerPoint.AlternateContent.pas',
   Office4D.Tests.Excel in 'Office4D.Tests.Excel.pas',
   Office4D.Tests.Excel.Write in 'Office4D.Tests.Excel.Write.pas',
   Office4D.Tests.PowerPoint in 'Office4D.Tests.PowerPoint.pas',
@@ -92,3 +93,4 @@ begin
       System.Writeln(E.ClassName, ': ', E.Message);
   end;
 end.
+

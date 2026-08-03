@@ -28,6 +28,7 @@ type
   private
     class function ScanTagEnd(const Xml: string; TagStart: Integer): Integer; static;
     class function IsTagNameEnd(const Value: Char): Boolean; static;
+    class function SelectAlternateContentBranch(const AlternateContentXml: string): string; static;
   public
     class function Escape(const Value: string): string; static;
     class function Unescape(const Value: string): string; static;
@@ -56,12 +57,26 @@ type
     /// included.
     /// </summary>
     class function RemoveElements(const Xml: string; const Elements: TArray<TXmlElement>): string; static;
+
+    /// <summary>
+    /// Replaces every mc:AlternateContent element by the branch a consumer is
+    /// meant to read: the first mc:Choice, or mc:Fallback when no choice is
+    /// offered. Both branches describe the same content, so reading them both
+    /// yields every shape and its text twice. Each pass unwraps one nesting
+    /// level and always shortens the XML, so the loop terminates.
+    /// </summary>
+    class function ReduceAlternateContent(const Xml: string): string; static;
   end;
 
 implementation
 
 uses
   System.Generics.Collections;
+
+const
+  ElementAlternateContent = 'mc:AlternateContent';
+  ElementChoice = 'mc:Choice';
+  ElementFallback = 'mc:Fallback';
 
 class function TXml.Escape(const Value: string): string;
 begin
@@ -226,6 +241,36 @@ end;
 class function TXml.RemoveElements(const Xml: string; const Elements: TArray<TXmlElement>): string;
 begin
   Result := ReplaceElements(Xml, Elements, nil);
+end;
+
+class function TXml.SelectAlternateContentBranch(const AlternateContentXml: string): string;
+begin
+  var Choices := FindElements(AlternateContentXml, ElementChoice);
+  if Length(Choices) > 0 then
+    Exit(Choices[0].Inner);
+
+  var Fallbacks := FindElements(AlternateContentXml, ElementFallback);
+  if Length(Fallbacks) > 0 then
+    Exit(Fallbacks[0].Inner);
+
+  Result := '';
+end;
+
+class function TXml.ReduceAlternateContent(const Xml: string): string;
+begin
+  Result := Xml;
+
+  var Elements := FindElements(Result, ElementAlternateContent);
+  while Length(Elements) > 0 do
+  begin
+    Result := ReplaceElements(Result, Elements,
+      function(Element: TXmlElement): string
+      begin
+        Result := TXml.SelectAlternateContentBranch(Element.Inner);
+      end);
+
+    Elements := FindElements(Result, ElementAlternateContent);
+  end;
 end;
 
 end.
