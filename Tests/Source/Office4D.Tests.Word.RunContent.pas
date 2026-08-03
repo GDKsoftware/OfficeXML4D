@@ -48,33 +48,7 @@ type
 implementation
 
 uses
-  System.Zip;
-
-const
-  ContentTypesXml =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
-    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
-    '<Default Extension="xml" ContentType="application/xml"/>' +
-    '<Override PartName="/word/document.xml" ' +
-    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
-    '</Types>';
-
-  RootRelsXml =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-    '<Relationship Id="rId1" ' +
-    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" ' +
-    'Target="word/document.xml"/>' +
-    '</Relationships>';
-
-  DocumentPrefix =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
-    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
-    'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><w:body>';
-
-  DocumentSuffix = '</w:body></w:document>';
+  Office4D.Tests.PackageBuilder;
 
 { TWordRunContentTests }
 
@@ -93,17 +67,7 @@ end;
 
 procedure TWordRunContentTests.LoadBody(const BodyXml: string);
 begin
-  var Zip := TZipFile.Create;
-  try
-    Zip.Open(FTempFile, zmWrite);
-    Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(RootRelsXml), '_rels/.rels');
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentPrefix + BodyXml + DocumentSuffix), 'word/document.xml');
-    Zip.Close;
-  finally
-    Zip.Free;
-  end;
-
+  TTestPackage.WriteDocx(FTempFile, BodyXml);
   FDoc.LoadFromFile(FTempFile);
 end;
 

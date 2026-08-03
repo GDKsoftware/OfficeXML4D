@@ -24,6 +24,7 @@ uses
   Office4D.PowerPoint in '..\..\Source\PowerPoint\Office4D.PowerPoint.pas',
   Office4D.PowerPoint.Presentation in '..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas',
   Office4D.Tests.Samples in 'Office4D.Tests.Samples.pas',
+  Office4D.Tests.PackageBuilder in 'Office4D.Tests.PackageBuilder.pas',
   Office4D.Tests.Package in 'Office4D.Tests.Package.pas',
   Office4D.Tests.Relationships in 'Office4D.Tests.Relationships.pas',
   Office4D.Tests.Metadata in 'Office4D.Tests.Metadata.pas',
@@ -93,4 +94,5 @@ begin
       System.Writeln(E.ClassName, ': ', E.Message);
   end;
 end.
+
 
