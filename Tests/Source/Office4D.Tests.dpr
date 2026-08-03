@@ -1,4 +1,4 @@
-﻿program Office4D.Tests;
+program Office4D.Tests;
 
 {$APPTYPE CONSOLE}
 
@@ -18,6 +18,9 @@ uses
   Office4D.Xml in '..\..\Source\Core\Office4D.Xml.pas',
   Office4D.Metadata in '..\..\Source\Common\Office4D.Metadata.pas',
   Office4D.Word in '..\..\Source\Word\Office4D.Word.pas',
+  Office4D.Word.Model in '..\..\Source\Word\Office4D.Word.Model.pas',
+  Office4D.Word.Reader in '..\..\Source\Word\Office4D.Word.Reader.pas',
+  Office4D.Word.Writer in '..\..\Source\Word\Office4D.Word.Writer.pas',
   Office4D.Word.Document in '..\..\Source\Word\Office4D.Word.Document.pas',
   Office4D.Excel in '..\..\Source\Excel\Office4D.Excel.pas',
   Office4D.Excel.Workbook in '..\..\Source\Excel\Office4D.Excel.Workbook.pas',
@@ -94,5 +97,3 @@ begin
       System.Writeln(E.ClassName, ': ', E.Message);
   end;
 end.
-
-
