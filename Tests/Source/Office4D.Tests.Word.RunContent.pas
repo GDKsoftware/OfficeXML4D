@@ -10,10 +10,10 @@ uses
 
 type
   /// <summary>
-  ///   Reading of run level content: every w:t of a run, breaks and tabs in
-  ///   document order, hyperlinks in place, and paragraph mark properties that
-  ///   must not be mistaken for a run. Each test builds a minimal .docx around
-  ///   the body XML it needs.
+  /// Reading of run level content: every w:t of a run, breaks and tabs in
+  /// document order, hyperlinks in place, and paragraph mark properties that
+  /// must not be mistaken for a run. Each test builds a minimal .docx around
+  /// the body XML it needs.
   /// </summary>
   [TestFixture]
   TWordRunContentTests = class

@@ -11,10 +11,10 @@ uses
 
 type
   /// <summary>
-  ///   Reproduces GitHub issue #34: a paragraph whose runs wrap
-  ///   mc:AlternateContent (grouped VML/DrawingML shapes) loses text.
-  ///   The sample contains 13 AlternateContent runs followed by a plain
-  ///   sibling run holding the visible heading text.
+  /// Text extraction around runs that wrap mc:AlternateContent, the grouped
+  /// VML/DrawingML shapes of a text box. The sample holds a paragraph with 13
+  /// such runs followed by a plain sibling run carrying the visible heading,
+  /// and states the shape text in both branches of every one of them.
   /// </summary>
   [TestFixture]
   TWordAlternateContentTests = class(TOffice4DTests)

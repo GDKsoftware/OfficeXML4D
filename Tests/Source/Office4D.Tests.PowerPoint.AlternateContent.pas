@@ -10,10 +10,10 @@ uses
 
 type
   /// <summary>
-  ///   A slide states a shape it cannot render everywhere twice, once in
-  ///   mc:Choice and once in mc:Fallback. Only one of the two branches is the
-  ///   shape of the slide. Each test builds a minimal .pptx around the slide
-  ///   XML it needs.
+  /// A slide states a shape it cannot render everywhere twice, once in
+  /// mc:Choice and once in mc:Fallback. Only one of the two branches is the
+  /// shape of the slide. Each test builds a minimal .pptx around the slide
+  /// XML it needs.
   /// </summary>
   [TestFixture]
   TPowerPointAlternateContentTests = class
