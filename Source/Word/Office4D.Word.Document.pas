@@ -129,6 +129,9 @@ type
     FHeader: IWordHeaderFooter;
     FFooter: IWordHeaderFooter;
 
+    procedure ResetContent;
+    procedure LoadFromPackage;
+    procedure WriteParts(const Zip: TZipFile);
     procedure ParseDocumentXml(const XmlContent: string; const HyperlinkMap: TDictionary<string, string>);
     procedure ParseParagraphs(const Xml: string; const HyperlinkMap: TDictionary<string, string>);
     procedure ParseParagraph(const ParagraphXml: string; const HyperlinkMap: TDictionary<string, string>);
@@ -700,69 +703,25 @@ end;
 
 procedure TWordDocument.LoadFromFile(const FileName: string);
 begin
-  FreeAndNil(FPackage);
-  FParagraphs.Clear;
-  FTables.Clear;
-  FMetadata.Clear;
-  FHeader.Text := '';
-  FFooter.Text := '';
+  ResetContent;
 
   FPackage := TOXMLPackage.Create;
   FPackage.Open(FileName);
 
-  var HyperlinkMap := TDictionary<string, string>.Create;
-  try
-    if FPackage.PartExists(PartDocumentRels) then
-    begin
-      var DocRelsXml := FPackage.GetPartContent(PartDocumentRels);
-      ParseDocumentRels(DocRelsXml, HyperlinkMap);
-
-      if HyperlinkMap.ContainsKey(KeyHeader) then
-      begin
-        const HeaderPath = PartWordPrefix + HyperlinkMap[KeyHeader];
-        if FPackage.PartExists(HeaderPath) then
-          ParseHeaderFooterXml(FPackage.GetPartContent(HeaderPath), FHeader);
-      end;
-
-      if HyperlinkMap.ContainsKey(KeyFooter) then
-      begin
-        const FooterPath = PartWordPrefix + HyperlinkMap[KeyFooter];
-        if FPackage.PartExists(FooterPath) then
-          ParseHeaderFooterXml(FPackage.GetPartContent(FooterPath), FFooter);
-      end;
-    end;
-
-    var RelsXml := FPackage.GetPartContent(PartRootRels);
-    var Rels := TRelationships.Create;
-    try
-      Rels.LoadFromXml(RelsXml);
-      var DocumentPath := Rels.GetTargetByType(RelTypeOfficeDocument);
-
-      if DocumentPath <> '' then
-      begin
-        var DocumentXml := FPackage.GetPartContent(DocumentPath);
-        ParseDocumentXml(DocumentXml, HyperlinkMap);
-      end;
-    finally
-      Rels.Free;
-    end;
-  finally
-    HyperlinkMap.Free;
-  end;
-
-  if FPackage.PartExists(PartCoreProps) then
-  begin
-    var CoreXml := FPackage.GetPartContent(PartCoreProps);
-    var MetaParser := TMetadataParser.Create;
-    try
-      FMetadata := MetaParser.Parse(CoreXml);
-    finally
-      MetaParser.Free;
-    end;
-  end;
+  LoadFromPackage;
 end;
 
 procedure TWordDocument.LoadFromStream(const Stream: TStream);
+begin
+  ResetContent;
+
+  FPackage := TOXMLPackage.Create;
+  FPackage.Open(Stream);
+
+  LoadFromPackage;
+end;
+
+procedure TWordDocument.ResetContent;
 begin
   FreeAndNil(FPackage);
   FParagraphs.Clear;
@@ -770,10 +729,10 @@ begin
   FMetadata.Clear;
   FHeader.Text := '';
   FFooter.Text := '';
+end;
 
-  FPackage := TOXMLPackage.Create;
-  FPackage.Open(Stream);
-
+procedure TWordDocument.LoadFromPackage;
+begin
   var HyperlinkMap := TDictionary<string, string>.Create;
   try
     if FPackage.PartExists(PartDocumentRels) then
@@ -1283,52 +1242,10 @@ end;
 
 procedure TWordDocument.SaveToFile(const FileName: string);
 begin
-  var ContentTypesXml := GenerateContentTypesXml;
-  var RelsXml := GenerateRootRelsXml;
-  var DocumentXml := GenerateDocumentXml;
-  var DocumentRelsXml := GenerateDocumentRelsXml;
-
   var Zip := TZipFile.Create;
   try
     Zip.Open(FileName, zmWrite);
-
-    Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(RelsXml), PartRootRels);
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentXml), 'word/document.xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentRelsXml), PartDocumentRels);
-
-    if HasListParagraphs then
-    begin
-      var NumberingXml := GenerateNumberingXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(NumberingXml), 'word/numbering.xml');
-    end;
-
-    if HasHeader then
-    begin
-      var HeaderXml := GenerateHeaderXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(HeaderXml), 'word/header1.xml');
-    end;
-
-    if HasFooter then
-    begin
-      var FooterXml := GenerateFooterXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(FooterXml), 'word/footer1.xml');
-    end;
-
-    var Images := CollectImages;
-    try
-      for var Idx := 0 to Images.Count - 1 do
-      begin
-        var ImgRun := Images[Idx];
-        var Img := ImgRun.GetImage;
-        var Ext := LowerCase(Img.Extension);
-        var MediaPath := 'word/media/image' + IntToStr(Idx + 1) + '.' + Ext;
-        Zip.Add(Img.Data, MediaPath);
-      end;
-    finally
-      Images.Free;
-    end;
-
+    WriteParts(Zip);
     Zip.Close;
   finally
     Zip.Free;
@@ -1337,55 +1254,47 @@ end;
 
 procedure TWordDocument.SaveToStream(const Stream: TStream);
 begin
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(Stream, zmWrite);
+    WriteParts(Zip);
+    Zip.Close;
+  finally
+    Zip.Free;
+  end;
+end;
+
+procedure TWordDocument.WriteParts(const Zip: TZipFile);
+begin
   var ContentTypesXml := GenerateContentTypesXml;
   var RelsXml := GenerateRootRelsXml;
   var DocumentXml := GenerateDocumentXml;
   var DocumentRelsXml := GenerateDocumentRelsXml;
 
-  var Zip := TZipFile.Create;
+  Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
+  Zip.Add(TEncoding.UTF8.GetBytes(RelsXml), PartRootRels);
+  Zip.Add(TEncoding.UTF8.GetBytes(DocumentXml), 'word/document.xml');
+  Zip.Add(TEncoding.UTF8.GetBytes(DocumentRelsXml), PartDocumentRels);
+
+  if HasListParagraphs then
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateNumberingXml), 'word/numbering.xml');
+
+  if HasHeader then
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateHeaderXml), 'word/header1.xml');
+
+  if HasFooter then
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateFooterXml), 'word/footer1.xml');
+
+  var Images := CollectImages;
   try
-    Zip.Open(Stream, zmWrite);
-
-    Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(RelsXml), PartRootRels);
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentXml), 'word/document.xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentRelsXml), PartDocumentRels);
-
-    if HasListParagraphs then
+    for var Idx := 0 to Images.Count - 1 do
     begin
-      var NumberingXml := GenerateNumberingXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(NumberingXml), 'word/numbering.xml');
+      var Img := Images[Idx].GetImage;
+      var MediaPath := 'word/media/image' + IntToStr(Idx + 1) + '.' + LowerCase(Img.Extension);
+      Zip.Add(Img.Data, MediaPath);
     end;
-
-    if HasHeader then
-    begin
-      var HeaderXml := GenerateHeaderXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(HeaderXml), 'word/header1.xml');
-    end;
-
-    if HasFooter then
-    begin
-      var FooterXml := GenerateFooterXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(FooterXml), 'word/footer1.xml');
-    end;
-
-    var Images := CollectImages;
-    try
-      for var Idx := 0 to Images.Count - 1 do
-      begin
-        var ImgRun := Images[Idx];
-        var Img := ImgRun.GetImage;
-        var Ext := LowerCase(Img.Extension);
-        var MediaPath := 'word/media/image' + IntToStr(Idx + 1) + '.' + Ext;
-        Zip.Add(Img.Data, MediaPath);
-      end;
-    finally
-      Images.Free;
-    end;
-
-    Zip.Close;
   finally
-    Zip.Free;
+    Images.Free;
   end;
 end;
 
