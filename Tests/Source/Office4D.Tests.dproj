@@ -156,6 +156,7 @@
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas"/>
         <DCCReference Include="Office4D.Tests.Samples.pas"/>
+        <DCCReference Include="Office4D.Tests.PackageBuilder.pas"/>
         <DCCReference Include="Office4D.Tests.Package.pas"/>
         <DCCReference Include="Office4D.Tests.Relationships.pas"/>
         <DCCReference Include="Office4D.Tests.Metadata.pas"/>
@@ -212,4 +213,5 @@
     <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
 </Project>
+
 
