@@ -100,6 +100,9 @@
         <DCCReference Include="..\..\Source\Word\Office4D.Word.Reader.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.Writer.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Model.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Reader.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Writer.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

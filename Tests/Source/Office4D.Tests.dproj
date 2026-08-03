@@ -157,6 +157,9 @@
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.pas"/>
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.Workbook.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Model.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Reader.pas"/>
+        <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Writer.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas"/>
         <DCCReference Include="Office4D.Tests.Samples.pas"/>
         <DCCReference Include="Office4D.Tests.PackageBuilder.pas"/>
