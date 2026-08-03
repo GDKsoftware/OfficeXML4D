@@ -40,6 +40,9 @@ type
 
     [Test]
     procedure RemoveElements_Nothing_ReturnsInput;
+
+    [Test]
+    procedure ReplaceElements_Replacement_SplicesItIn;
   end;
 
 implementation
@@ -123,6 +126,20 @@ begin
   const Xml = '<w:r>text</w:r>';
 
   Assert.AreEqual(Xml, TXml.RemoveElements(Xml, TXml.FindElements(Xml, 'w:p')));
+end;
+
+procedure TXmlFindElementsTests.ReplaceElements_Replacement_SplicesItIn;
+begin
+  const Xml = '<w:p>a<w:pict>shape</w:pict>b</w:p>';
+  var Elements := TXml.FindElements(Xml, 'w:pict');
+
+  var Replaced := TXml.ReplaceElements(Xml, Elements,
+    function(Element: TXmlElement): string
+    begin
+      Result := '[' + Element.Inner + ']';
+    end);
+
+  Assert.AreEqual('<w:p>a[shape]b</w:p>', Replaced);
 end;
 
 initialization

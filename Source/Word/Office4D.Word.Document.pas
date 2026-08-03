@@ -216,10 +216,11 @@ const
   ElementChoice = 'mc:Choice';
   ElementFallback = 'mc:Fallback';
 
+  TextElementPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>';
+
   /// Matches a w:t element with its text, or a standalone w:br or w:tab, so the
   /// children of a run can be walked in document order.
-  RunContentPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>|<w:t\s*/>|<w:br(?:\s[^>]*)?/?>|<w:tab(?:\s[^>]*)?/?>';
-  TextElementPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>';
+  RunContentPattern = TextElementPattern + '|<w:t\s*/>|<w:br(?:\s[^>]*)?/?>|<w:tab(?:\s[^>]*)?/?>';
 
 /// <summary>
 /// Returns the branch of an mc:AlternateContent element that a consumer should
@@ -251,23 +252,11 @@ begin
   var Elements := TXml.FindElements(Result, ElementAlternateContent);
   while Length(Elements) > 0 do
   begin
-    var Builder := TStringBuilder.Create;
-    try
-      var Cursor := 1;
-
-      for var Element in Elements do
+    Result := TXml.ReplaceElements(Result, Elements,
+      function(Element: TXmlElement): string
       begin
-        Builder.Append(Copy(Result, Cursor, Element.StartPos - Cursor));
-        Builder.Append(SelectAlternateContentBranch(Element.Inner));
-        Cursor := Element.EndPos;
-      end;
-
-      Builder.Append(Copy(Result, Cursor, Length(Result) - Cursor + 1));
-
-      Result := Builder.ToString;
-    finally
-      Builder.Free;
-    end;
+        Result := SelectAlternateContentBranch(Element.Inner);
+      end);
 
     Elements := TXml.FindElements(Result, ElementAlternateContent);
   end;

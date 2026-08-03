@@ -2,6 +2,9 @@ unit Office4D.Xml;
 
 interface
 
+uses
+  System.SysUtils;
+
 type
   /// <summary>
   /// One element located by <see cref="TXml.FindElements"/>. Positions are
@@ -40,9 +43,17 @@ type
     class function FindElements(const Xml, ElementName: string): TArray<TXmlElement>; static;
 
     /// <summary>
+    /// Returns Xml with each of the given elements, opening and closing tag
+    /// included, replaced by what GetReplacement yields for it. A nil
+    /// GetReplacement drops the elements. The elements must belong to Xml and
+    /// be ordered by StartPos, which is what FindElements returns.
+    /// </summary>
+    class function ReplaceElements(const Xml: string; const Elements: TArray<TXmlElement>;
+      const GetReplacement: TFunc<TXmlElement, string>): string; static;
+
+    /// <summary>
     /// Returns Xml with the given elements cut out, opening and closing tag
-    /// included. The elements must belong to Xml and be ordered by StartPos,
-    /// which is what FindElements returns.
+    /// included.
     /// </summary>
     class function RemoveElements(const Xml: string; const Elements: TArray<TXmlElement>): string; static;
   end;
@@ -50,7 +61,6 @@ type
 implementation
 
 uses
-  System.SysUtils,
   System.Generics.Collections;
 
 class function TXml.Escape(const Value: string): string;
@@ -185,7 +195,8 @@ begin
   end;
 end;
 
-class function TXml.RemoveElements(const Xml: string; const Elements: TArray<TXmlElement>): string;
+class function TXml.ReplaceElements(const Xml: string; const Elements: TArray<TXmlElement>;
+  const GetReplacement: TFunc<TXmlElement, string>): string;
 begin
   if Length(Elements) = 0 then
     Exit(Xml);
@@ -197,6 +208,10 @@ begin
     for var Element in Elements do
     begin
       Builder.Append(Copy(Xml, Cursor, Element.StartPos - Cursor));
+
+      if Assigned(GetReplacement) then
+        Builder.Append(GetReplacement(Element));
+
       Cursor := Element.EndPos;
     end;
 
@@ -206,6 +221,11 @@ begin
   finally
     Builder.Free;
   end;
+end;
+
+class function TXml.RemoveElements(const Xml: string; const Elements: TArray<TXmlElement>): string;
+begin
+  Result := ReplaceElements(Xml, Elements, nil);
 end;
 
 end.
