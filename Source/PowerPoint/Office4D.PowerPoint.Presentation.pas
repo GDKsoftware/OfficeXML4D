@@ -812,7 +812,12 @@ procedure TPowerPointPresentation.ParseSlideXml(const Xml: string);
 begin
   const Slide = AddSlide;
 
-  const SpMatches = TRegEx.Matches(Xml, '<p:sp>(.*?)</p:sp>', [roIgnoreCase, roSingleLine]);
+  // A slide states shapes it cannot render everywhere twice, once per
+  // mc:AlternateContent branch. Only the branch a consumer should read is kept,
+  // so the shapes below are the shapes of the slide, each of them once.
+  const SlideXml = TXml.ReduceAlternateContent(Xml);
+
+  const SpMatches = TRegEx.Matches(SlideXml, '<p:sp>(.*?)</p:sp>', [roIgnoreCase, roSingleLine]);
   for var SpMatch in SpMatches do
   begin
     if SpMatch.Groups.Count > 1 then

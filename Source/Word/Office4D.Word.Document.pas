@@ -11,7 +11,8 @@ uses
   Office4D.Word,
   Office4D.Metadata,
   Office4D.Package,
-  Office4D.Relationships;
+  Office4D.Relationships,
+  Office4D.Xml;
 
 type
   TWordRun = class(TInterfacedObject, IWordRun)
@@ -128,7 +129,18 @@ type
     FHeader: IWordHeaderFooter;
     FFooter: IWordHeaderFooter;
 
+    procedure ResetContent;
+    procedure LoadFromPackage;
+    procedure WriteParts(const Zip: TZipFile);
     procedure ParseDocumentXml(const XmlContent: string; const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseParagraphs(const Xml: string; const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseParagraph(const ParagraphXml: string; const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseParagraphContent(const Para: TWordParagraph; const ParagraphXml: string;
+      const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseHyperlink(const Para: TWordParagraph; const Hyperlink: TXmlElement;
+      const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseRun(const Para: TWordParagraph; const RunXml, Hyperlink: string);
+    procedure ApplyListStyle(const Para: TWordParagraph; const ParagraphXml: string);
     procedure ParseDocumentRels(const XmlContent: string; const Hyperlinks: TDictionary<string, string>);
     procedure ParseHeaderFooterXml(const XmlContent: string; const Target: IWordHeaderFooter);
     function GenerateContentTypesXml: string;
@@ -179,8 +191,7 @@ implementation
 
 uses
   Office4D.Errors,
-  Office4D.Types,
-  Office4D.Xml;
+  Office4D.Types;
 
 const
   XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -200,6 +211,16 @@ const
   KeyFooter = '__footer__';
 
   EmuPerPixel = 9525;
+
+  ElementParagraph = 'w:p';
+  ElementRun = 'w:r';
+  ElementHyperlink = 'w:hyperlink';
+
+  TextElementPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>';
+
+  /// Matches a w:t element with its text, or a standalone w:br or w:tab, so the
+  /// children of a run can be walked in document order.
+  RunContentPattern = TextElementPattern + '|<w:t\s*/>|<w:br(?:\s[^>]*)?/?>|<w:tab(?:\s[^>]*)?/?>';
 
 { TWordRun }
 
@@ -530,155 +551,134 @@ procedure TWordDocument.ParseDocumentXml(const XmlContent: string; const Hyperli
 begin
   FParagraphs.Clear;
 
-  var ParagraphPattern := '<w:p[^>]*>(.*?)</w:p>';
-  var ParagraphMatches := TRegEx.Matches(XmlContent, ParagraphPattern, [roIgnoreCase, roSingleLine]);
+  ParseParagraphs(TXml.ReduceAlternateContent(XmlContent), HyperlinkMap);
+end;
 
-  for var ParagraphMatch in ParagraphMatches do
+procedure TWordDocument.ParseParagraphs(const Xml: string; const HyperlinkMap: TDictionary<string, string>);
+begin
+  for var Element in TXml.FindElements(Xml, ElementParagraph) do
   begin
-    if ParagraphMatch.Groups.Count > 1 then
+    var ParagraphXml := Element.Inner;
+    var NestedParagraphs := TXml.FindElements(ParagraphXml, ElementParagraph);
+
+    if Length(NestedParagraphs) > 0 then
     begin
-      var ParagraphXml := ParagraphMatch.Groups[1].Value;
-      var Para := TWordParagraph.Create;
+      // A paragraph nested in a shape's text box is a paragraph in its own
+      // right. It is read first, and removing it here keeps the runs that
+      // follow the shape inside the hosting paragraph.
+      ParseParagraphs(ParagraphXml, HyperlinkMap);
+      ParagraphXml := TXml.RemoveElements(ParagraphXml, NestedParagraphs);
+    end;
 
-      var NumIdPattern := '<w:numId\s+w:val="(\d+)"';
-      var NumIdMatch := TRegEx.Match(ParagraphXml, NumIdPattern, [roIgnoreCase]);
-      if NumIdMatch.Success and (NumIdMatch.Groups.Count > 1) then
-      begin
-        var NumId := StrToIntDef(NumIdMatch.Groups[1].Value, 0);
-        if NumId = 1 then
-          Para.FListStyle := TListStyle.Bullet
-        else if NumId = 2 then
-          Para.FListStyle := TListStyle.Numbered;
-      end;
+    ParseParagraph(ParagraphXml, HyperlinkMap);
+  end;
+end;
 
-      var HyperlinkPattern := '<w:hyperlink[^>]*r:id="([^"]*)"[^>]*>(.*?)</w:hyperlink>';
-      var HyperlinkMatches := TRegEx.Matches(ParagraphXml, HyperlinkPattern, [roIgnoreCase, roSingleLine]);
+procedure TWordDocument.ParseParagraph(const ParagraphXml: string; const HyperlinkMap: TDictionary<string, string>);
+begin
+  var Para := TWordParagraph.Create;
 
-      for var HyperlinkMatch in HyperlinkMatches do
-      begin
-        if HyperlinkMatch.Groups.Count > 2 then
-        begin
-          var RelId := HyperlinkMatch.Groups[1].Value;
-          var HyperlinkContent := HyperlinkMatch.Groups[2].Value;
-          var HyperlinkUrl := '';
-          if HyperlinkMap.ContainsKey(RelId) then
-            HyperlinkUrl := HyperlinkMap[RelId];
+  ApplyListStyle(Para, ParagraphXml);
+  ParseParagraphContent(Para, ParagraphXml, HyperlinkMap);
 
-          var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
-          var TextMatch := TRegEx.Match(HyperlinkContent, TextPattern, [roIgnoreCase]);
-          if TextMatch.Success and (TextMatch.Groups.Count > 1) then
-          begin
-            var TextValue := TXml.Unescape(TextMatch.Groups[1].Value);
-            if TextValue <> '' then
-            begin
-              var Run := Para.AddRun(TextValue);
-              Run.Hyperlink := HyperlinkUrl;
-            end;
-          end;
+  if Para.GetRunCount > 0 then
+    FParagraphs.Add(Para)
+  else
+    Para.Free;
+end;
 
-          ParagraphXml := StringReplace(ParagraphXml, HyperlinkMatch.Value, '', []);
-        end;
-      end;
+procedure TWordDocument.ApplyListStyle(const Para: TWordParagraph; const ParagraphXml: string);
+begin
+  var NumIdPattern := '<w:numId\s+w:val="(\d+)"';
+  var NumIdMatch := TRegEx.Match(ParagraphXml, NumIdPattern, [roIgnoreCase]);
+  if not (NumIdMatch.Success and (NumIdMatch.Groups.Count > 1)) then
+    Exit;
 
-      var RunPattern := '<w:r[^>]*>(.*?)</w:r>';
-      var RunMatches := TRegEx.Matches(ParagraphXml, RunPattern, [roIgnoreCase, roSingleLine]);
+  var NumId := StrToIntDef(NumIdMatch.Groups[1].Value, 0);
+  if NumId = 1 then
+    Para.FListStyle := TListStyle.Bullet
+  else if NumId = 2 then
+    Para.FListStyle := TListStyle.Numbered;
+end;
 
-      for var RunMatch in RunMatches do
-      begin
-        if RunMatch.Groups.Count > 1 then
-        begin
-          var RunXml := RunMatch.Groups[1].Value;
+procedure TWordDocument.ParseParagraphContent(const Para: TWordParagraph; const ParagraphXml: string;
+  const HyperlinkMap: TDictionary<string, string>);
+begin
+  var Hyperlinks := TXml.FindElements(ParagraphXml, ElementHyperlink);
+  var Runs := TXml.FindElements(ParagraphXml, ElementRun);
+  var NextHyperlink := 0;
 
-          if Pos('<w:br', RunXml) > 0 then
-            Para.AddLineBreak;
+  for var Run in Runs do
+  begin
+    while (NextHyperlink < Length(Hyperlinks)) and (Hyperlinks[NextHyperlink].StartPos < Run.StartPos) do
+    begin
+      ParseHyperlink(Para, Hyperlinks[NextHyperlink], HyperlinkMap);
+      Inc(NextHyperlink);
+    end;
 
-          if Pos('<w:tab', RunXml) > 0 then
-            Para.AddTab;
+    var IsHyperlinkRun := (NextHyperlink > 0) and (Run.EndPos <= Hyperlinks[NextHyperlink - 1].EndPos);
+    if not IsHyperlinkRun then
+      ParseRun(Para, Run.Inner, '');
+  end;
 
-          var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
-          var TextMatch := TRegEx.Match(RunXml, TextPattern, [roIgnoreCase]);
-          if TextMatch.Success and (TextMatch.Groups.Count > 1) then
-          begin
-            var TextValue := TXml.Unescape(TextMatch.Groups[1].Value);
-            if TextValue <> '' then
-              Para.AddRun(TextValue);
-          end;
-        end;
-      end;
+  while NextHyperlink < Length(Hyperlinks) do
+  begin
+    ParseHyperlink(Para, Hyperlinks[NextHyperlink], HyperlinkMap);
+    Inc(NextHyperlink);
+  end;
+end;
 
-      if Para.GetRunCount > 0 then
-        FParagraphs.Add(Para)
-      else
-        Para.Free;
+procedure TWordDocument.ParseHyperlink(const Para: TWordParagraph; const Hyperlink: TXmlElement;
+  const HyperlinkMap: TDictionary<string, string>);
+begin
+  var Url := '';
+
+  var RelIdMatch := TRegEx.Match(Hyperlink.OpenTag, 'r:id="([^"]*)"', [roIgnoreCase]);
+  if RelIdMatch.Success and (RelIdMatch.Groups.Count > 1) then
+    HyperlinkMap.TryGetValue(RelIdMatch.Groups[1].Value, Url);
+
+  for var Run in TXml.FindElements(Hyperlink.Inner, ElementRun) do
+    ParseRun(Para, Run.Inner, Url);
+end;
+
+procedure TWordDocument.ParseRun(const Para: TWordParagraph; const RunXml, Hyperlink: string);
+begin
+  for var Match in TRegEx.Matches(RunXml, RunContentPattern, [roIgnoreCase]) do
+  begin
+    if Match.Value.StartsWith('<w:br') then
+      Para.AddLineBreak
+    else if Match.Value.StartsWith('<w:tab') then
+      Para.AddTab
+    else if Match.Groups.Count > 1 then
+    begin
+      var TextValue := TXml.Unescape(Match.Groups[1].Value);
+      if TextValue <> '' then
+        Para.AddRun(TextValue).Hyperlink := Hyperlink;
     end;
   end;
 end;
 
 procedure TWordDocument.LoadFromFile(const FileName: string);
 begin
-  FreeAndNil(FPackage);
-  FParagraphs.Clear;
-  FTables.Clear;
-  FMetadata.Clear;
-  FHeader.Text := '';
-  FFooter.Text := '';
+  ResetContent;
 
   FPackage := TOXMLPackage.Create;
   FPackage.Open(FileName);
 
-  var HyperlinkMap := TDictionary<string, string>.Create;
-  try
-    if FPackage.PartExists(PartDocumentRels) then
-    begin
-      var DocRelsXml := FPackage.GetPartContent(PartDocumentRels);
-      ParseDocumentRels(DocRelsXml, HyperlinkMap);
-
-      if HyperlinkMap.ContainsKey(KeyHeader) then
-      begin
-        const HeaderPath = PartWordPrefix + HyperlinkMap[KeyHeader];
-        if FPackage.PartExists(HeaderPath) then
-          ParseHeaderFooterXml(FPackage.GetPartContent(HeaderPath), FHeader);
-      end;
-
-      if HyperlinkMap.ContainsKey(KeyFooter) then
-      begin
-        const FooterPath = PartWordPrefix + HyperlinkMap[KeyFooter];
-        if FPackage.PartExists(FooterPath) then
-          ParseHeaderFooterXml(FPackage.GetPartContent(FooterPath), FFooter);
-      end;
-    end;
-
-    var RelsXml := FPackage.GetPartContent(PartRootRels);
-    var Rels := TRelationships.Create;
-    try
-      Rels.LoadFromXml(RelsXml);
-      var DocumentPath := Rels.GetTargetByType(RelTypeOfficeDocument);
-
-      if DocumentPath <> '' then
-      begin
-        var DocumentXml := FPackage.GetPartContent(DocumentPath);
-        ParseDocumentXml(DocumentXml, HyperlinkMap);
-      end;
-    finally
-      Rels.Free;
-    end;
-  finally
-    HyperlinkMap.Free;
-  end;
-
-  if FPackage.PartExists(PartCoreProps) then
-  begin
-    var CoreXml := FPackage.GetPartContent(PartCoreProps);
-    var MetaParser := TMetadataParser.Create;
-    try
-      FMetadata := MetaParser.Parse(CoreXml);
-    finally
-      MetaParser.Free;
-    end;
-  end;
+  LoadFromPackage;
 end;
 
 procedure TWordDocument.LoadFromStream(const Stream: TStream);
+begin
+  ResetContent;
+
+  FPackage := TOXMLPackage.Create;
+  FPackage.Open(Stream);
+
+  LoadFromPackage;
+end;
+
+procedure TWordDocument.ResetContent;
 begin
   FreeAndNil(FPackage);
   FParagraphs.Clear;
@@ -686,10 +686,10 @@ begin
   FMetadata.Clear;
   FHeader.Text := '';
   FFooter.Text := '';
+end;
 
-  FPackage := TOXMLPackage.Create;
-  FPackage.Open(Stream);
-
+procedure TWordDocument.LoadFromPackage;
+begin
   var HyperlinkMap := TDictionary<string, string>.Create;
   try
     if FPackage.PartExists(PartDocumentRels) then
@@ -1199,52 +1199,10 @@ end;
 
 procedure TWordDocument.SaveToFile(const FileName: string);
 begin
-  var ContentTypesXml := GenerateContentTypesXml;
-  var RelsXml := GenerateRootRelsXml;
-  var DocumentXml := GenerateDocumentXml;
-  var DocumentRelsXml := GenerateDocumentRelsXml;
-
   var Zip := TZipFile.Create;
   try
     Zip.Open(FileName, zmWrite);
-
-    Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(RelsXml), PartRootRels);
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentXml), 'word/document.xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentRelsXml), PartDocumentRels);
-
-    if HasListParagraphs then
-    begin
-      var NumberingXml := GenerateNumberingXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(NumberingXml), 'word/numbering.xml');
-    end;
-
-    if HasHeader then
-    begin
-      var HeaderXml := GenerateHeaderXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(HeaderXml), 'word/header1.xml');
-    end;
-
-    if HasFooter then
-    begin
-      var FooterXml := GenerateFooterXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(FooterXml), 'word/footer1.xml');
-    end;
-
-    var Images := CollectImages;
-    try
-      for var Idx := 0 to Images.Count - 1 do
-      begin
-        var ImgRun := Images[Idx];
-        var Img := ImgRun.GetImage;
-        var Ext := LowerCase(Img.Extension);
-        var MediaPath := 'word/media/image' + IntToStr(Idx + 1) + '.' + Ext;
-        Zip.Add(Img.Data, MediaPath);
-      end;
-    finally
-      Images.Free;
-    end;
-
+    WriteParts(Zip);
     Zip.Close;
   finally
     Zip.Free;
@@ -1253,55 +1211,47 @@ end;
 
 procedure TWordDocument.SaveToStream(const Stream: TStream);
 begin
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(Stream, zmWrite);
+    WriteParts(Zip);
+    Zip.Close;
+  finally
+    Zip.Free;
+  end;
+end;
+
+procedure TWordDocument.WriteParts(const Zip: TZipFile);
+begin
   var ContentTypesXml := GenerateContentTypesXml;
   var RelsXml := GenerateRootRelsXml;
   var DocumentXml := GenerateDocumentXml;
   var DocumentRelsXml := GenerateDocumentRelsXml;
 
-  var Zip := TZipFile.Create;
+  Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
+  Zip.Add(TEncoding.UTF8.GetBytes(RelsXml), PartRootRels);
+  Zip.Add(TEncoding.UTF8.GetBytes(DocumentXml), 'word/document.xml');
+  Zip.Add(TEncoding.UTF8.GetBytes(DocumentRelsXml), PartDocumentRels);
+
+  if HasListParagraphs then
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateNumberingXml), 'word/numbering.xml');
+
+  if HasHeader then
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateHeaderXml), 'word/header1.xml');
+
+  if HasFooter then
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateFooterXml), 'word/footer1.xml');
+
+  var Images := CollectImages;
   try
-    Zip.Open(Stream, zmWrite);
-
-    Zip.Add(TEncoding.UTF8.GetBytes(ContentTypesXml), '[Content_Types].xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(RelsXml), PartRootRels);
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentXml), 'word/document.xml');
-    Zip.Add(TEncoding.UTF8.GetBytes(DocumentRelsXml), PartDocumentRels);
-
-    if HasListParagraphs then
+    for var Idx := 0 to Images.Count - 1 do
     begin
-      var NumberingXml := GenerateNumberingXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(NumberingXml), 'word/numbering.xml');
+      var Img := Images[Idx].GetImage;
+      var MediaPath := 'word/media/image' + IntToStr(Idx + 1) + '.' + LowerCase(Img.Extension);
+      Zip.Add(Img.Data, MediaPath);
     end;
-
-    if HasHeader then
-    begin
-      var HeaderXml := GenerateHeaderXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(HeaderXml), 'word/header1.xml');
-    end;
-
-    if HasFooter then
-    begin
-      var FooterXml := GenerateFooterXml;
-      Zip.Add(TEncoding.UTF8.GetBytes(FooterXml), 'word/footer1.xml');
-    end;
-
-    var Images := CollectImages;
-    try
-      for var Idx := 0 to Images.Count - 1 do
-      begin
-        var ImgRun := Images[Idx];
-        var Img := ImgRun.GetImage;
-        var Ext := LowerCase(Img.Extension);
-        var MediaPath := 'word/media/image' + IntToStr(Idx + 1) + '.' + Ext;
-        Zip.Add(Img.Data, MediaPath);
-      end;
-    finally
-      Images.Free;
-    end;
-
-    Zip.Close;
   finally
-    Zip.Free;
+    Images.Free;
   end;
 end;
 
@@ -1500,10 +1450,15 @@ end;
 
 procedure TWordDocument.ParseHeaderFooterXml(const XmlContent: string; const Target: IWordHeaderFooter);
 begin
-  var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
-  var Match := TRegEx.Match(XmlContent, TextPattern, [roIgnoreCase]);
-  if Match.Success and (Match.Groups.Count > 1) then
-    Target.Text := TXml.Unescape(Match.Groups[1].Value);
+  var Builder := TStringBuilder.Create;
+  try
+    for var Match in TRegEx.Matches(XmlContent, TextElementPattern, [roIgnoreCase]) do
+      Builder.Append(TXml.Unescape(Match.Groups[1].Value));
+
+    Target.Text := Builder.ToString;
+  finally
+    Builder.Free;
+  end;
 end;
 
 end.
