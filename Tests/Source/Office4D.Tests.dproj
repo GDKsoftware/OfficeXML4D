@@ -162,6 +162,8 @@
         <DCCReference Include="Office4D.Tests.Word.pas"/>
         <DCCReference Include="Office4D.Tests.Word.Write.pas"/>
         <DCCReference Include="Office4D.Tests.Word.AlternateContent.pas"/>
+        <DCCReference Include="Office4D.Tests.Word.RunContent.pas"/>
+        <DCCReference Include="Office4D.Tests.Xml.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.Write.pas"/>
         <DCCReference Include="Office4D.Tests.PowerPoint.pas"/>

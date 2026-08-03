@@ -11,7 +11,8 @@ uses
   Office4D.Word,
   Office4D.Metadata,
   Office4D.Package,
-  Office4D.Relationships;
+  Office4D.Relationships,
+  Office4D.Xml;
 
 type
   TWordRun = class(TInterfacedObject, IWordRun)
@@ -129,6 +130,14 @@ type
     FFooter: IWordHeaderFooter;
 
     procedure ParseDocumentXml(const XmlContent: string; const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseParagraphs(const Xml: string; const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseParagraph(const ParagraphXml: string; const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseParagraphContent(const Para: TWordParagraph; const ParagraphXml: string;
+      const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseHyperlink(const Para: TWordParagraph; const Hyperlink: TXmlElement;
+      const HyperlinkMap: TDictionary<string, string>);
+    procedure ParseRun(const Para: TWordParagraph; const RunXml, Hyperlink: string);
+    procedure ApplyListStyle(const Para: TWordParagraph; const ParagraphXml: string);
     procedure ParseDocumentRels(const XmlContent: string; const Hyperlinks: TDictionary<string, string>);
     procedure ParseHeaderFooterXml(const XmlContent: string; const Target: IWordHeaderFooter);
     function GenerateContentTypesXml: string;
@@ -179,8 +188,7 @@ implementation
 
 uses
   Office4D.Errors,
-  Office4D.Types,
-  Office4D.Xml;
+  Office4D.Types;
 
 const
   XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -200,6 +208,70 @@ const
   KeyFooter = '__footer__';
 
   EmuPerPixel = 9525;
+
+  ElementParagraph = 'w:p';
+  ElementRun = 'w:r';
+  ElementHyperlink = 'w:hyperlink';
+  ElementAlternateContent = 'mc:AlternateContent';
+  ElementChoice = 'mc:Choice';
+  ElementFallback = 'mc:Fallback';
+
+  /// Matches a w:t element with its text, or a standalone w:br or w:tab, so the
+  /// children of a run can be walked in document order.
+  RunContentPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>|<w:t\s*/>|<w:br(?:\s[^>]*)?/?>|<w:tab(?:\s[^>]*)?/?>';
+  TextElementPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>';
+
+/// <summary>
+/// Returns the branch of an mc:AlternateContent element that a consumer should
+/// read. The first mc:Choice wins; mc:Fallback is only used when no choice is
+/// offered. Reading both would yield the shape's text twice.
+/// </summary>
+function SelectAlternateContentBranch(const AlternateContentXml: string): string;
+begin
+  var Choices := TXml.FindElements(AlternateContentXml, ElementChoice);
+  if Length(Choices) > 0 then
+    Exit(Choices[0].Inner);
+
+  var Fallbacks := TXml.FindElements(AlternateContentXml, ElementFallback);
+  if Length(Fallbacks) > 0 then
+    Exit(Fallbacks[0].Inner);
+
+  Result := '';
+end;
+
+/// <summary>
+/// Replaces every mc:AlternateContent element by the branch that should be
+/// read, so the rest of the parser sees plain content. Each pass unwraps one
+/// nesting level and always shortens the XML, so the loop terminates.
+/// </summary>
+function ReduceAlternateContent(const Xml: string): string;
+begin
+  Result := Xml;
+
+  var Elements := TXml.FindElements(Result, ElementAlternateContent);
+  while Length(Elements) > 0 do
+  begin
+    var Builder := TStringBuilder.Create;
+    try
+      var Cursor := 1;
+
+      for var Element in Elements do
+      begin
+        Builder.Append(Copy(Result, Cursor, Element.StartPos - Cursor));
+        Builder.Append(SelectAlternateContentBranch(Element.Inner));
+        Cursor := Element.EndPos;
+      end;
+
+      Builder.Append(Copy(Result, Cursor, Length(Result) - Cursor + 1));
+
+      Result := Builder.ToString;
+    finally
+      Builder.Free;
+    end;
+
+    Elements := TXml.FindElements(Result, ElementAlternateContent);
+  end;
+end;
 
 { TWordRun }
 
@@ -530,86 +602,109 @@ procedure TWordDocument.ParseDocumentXml(const XmlContent: string; const Hyperli
 begin
   FParagraphs.Clear;
 
-  var ParagraphPattern := '<w:p[^>]*>(.*?)</w:p>';
-  var ParagraphMatches := TRegEx.Matches(XmlContent, ParagraphPattern, [roIgnoreCase, roSingleLine]);
+  ParseParagraphs(ReduceAlternateContent(XmlContent), HyperlinkMap);
+end;
 
-  for var ParagraphMatch in ParagraphMatches do
+procedure TWordDocument.ParseParagraphs(const Xml: string; const HyperlinkMap: TDictionary<string, string>);
+begin
+  for var Element in TXml.FindElements(Xml, ElementParagraph) do
   begin
-    if ParagraphMatch.Groups.Count > 1 then
+    var ParagraphXml := Element.Inner;
+    var NestedParagraphs := TXml.FindElements(ParagraphXml, ElementParagraph);
+
+    if Length(NestedParagraphs) > 0 then
     begin
-      var ParagraphXml := ParagraphMatch.Groups[1].Value;
-      var Para := TWordParagraph.Create;
+      // A paragraph nested in a shape's text box is a paragraph in its own
+      // right. It is read first, and removing it here keeps the runs that
+      // follow the shape inside the hosting paragraph.
+      ParseParagraphs(ParagraphXml, HyperlinkMap);
+      ParagraphXml := TXml.RemoveElements(ParagraphXml, NestedParagraphs);
+    end;
 
-      var NumIdPattern := '<w:numId\s+w:val="(\d+)"';
-      var NumIdMatch := TRegEx.Match(ParagraphXml, NumIdPattern, [roIgnoreCase]);
-      if NumIdMatch.Success and (NumIdMatch.Groups.Count > 1) then
-      begin
-        var NumId := StrToIntDef(NumIdMatch.Groups[1].Value, 0);
-        if NumId = 1 then
-          Para.FListStyle := TListStyle.Bullet
-        else if NumId = 2 then
-          Para.FListStyle := TListStyle.Numbered;
-      end;
+    ParseParagraph(ParagraphXml, HyperlinkMap);
+  end;
+end;
 
-      var HyperlinkPattern := '<w:hyperlink[^>]*r:id="([^"]*)"[^>]*>(.*?)</w:hyperlink>';
-      var HyperlinkMatches := TRegEx.Matches(ParagraphXml, HyperlinkPattern, [roIgnoreCase, roSingleLine]);
+procedure TWordDocument.ParseParagraph(const ParagraphXml: string; const HyperlinkMap: TDictionary<string, string>);
+begin
+  var Para := TWordParagraph.Create;
 
-      for var HyperlinkMatch in HyperlinkMatches do
-      begin
-        if HyperlinkMatch.Groups.Count > 2 then
-        begin
-          var RelId := HyperlinkMatch.Groups[1].Value;
-          var HyperlinkContent := HyperlinkMatch.Groups[2].Value;
-          var HyperlinkUrl := '';
-          if HyperlinkMap.ContainsKey(RelId) then
-            HyperlinkUrl := HyperlinkMap[RelId];
+  ApplyListStyle(Para, ParagraphXml);
+  ParseParagraphContent(Para, ParagraphXml, HyperlinkMap);
 
-          var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
-          var TextMatch := TRegEx.Match(HyperlinkContent, TextPattern, [roIgnoreCase]);
-          if TextMatch.Success and (TextMatch.Groups.Count > 1) then
-          begin
-            var TextValue := TXml.Unescape(TextMatch.Groups[1].Value);
-            if TextValue <> '' then
-            begin
-              var Run := Para.AddRun(TextValue);
-              Run.Hyperlink := HyperlinkUrl;
-            end;
-          end;
+  if Para.GetRunCount > 0 then
+    FParagraphs.Add(Para)
+  else
+    Para.Free;
+end;
 
-          ParagraphXml := StringReplace(ParagraphXml, HyperlinkMatch.Value, '', []);
-        end;
-      end;
+procedure TWordDocument.ApplyListStyle(const Para: TWordParagraph; const ParagraphXml: string);
+begin
+  var NumIdPattern := '<w:numId\s+w:val="(\d+)"';
+  var NumIdMatch := TRegEx.Match(ParagraphXml, NumIdPattern, [roIgnoreCase]);
+  if not (NumIdMatch.Success and (NumIdMatch.Groups.Count > 1)) then
+    Exit;
 
-      var RunPattern := '<w:r[^>]*>(.*?)</w:r>';
-      var RunMatches := TRegEx.Matches(ParagraphXml, RunPattern, [roIgnoreCase, roSingleLine]);
+  var NumId := StrToIntDef(NumIdMatch.Groups[1].Value, 0);
+  if NumId = 1 then
+    Para.FListStyle := TListStyle.Bullet
+  else if NumId = 2 then
+    Para.FListStyle := TListStyle.Numbered;
+end;
 
-      for var RunMatch in RunMatches do
-      begin
-        if RunMatch.Groups.Count > 1 then
-        begin
-          var RunXml := RunMatch.Groups[1].Value;
+procedure TWordDocument.ParseParagraphContent(const Para: TWordParagraph; const ParagraphXml: string;
+  const HyperlinkMap: TDictionary<string, string>);
+begin
+  var Hyperlinks := TXml.FindElements(ParagraphXml, ElementHyperlink);
+  var Runs := TXml.FindElements(ParagraphXml, ElementRun);
+  var NextHyperlink := 0;
 
-          if Pos('<w:br', RunXml) > 0 then
-            Para.AddLineBreak;
+  for var Run in Runs do
+  begin
+    while (NextHyperlink < Length(Hyperlinks)) and (Hyperlinks[NextHyperlink].StartPos < Run.StartPos) do
+    begin
+      ParseHyperlink(Para, Hyperlinks[NextHyperlink], HyperlinkMap);
+      Inc(NextHyperlink);
+    end;
 
-          if Pos('<w:tab', RunXml) > 0 then
-            Para.AddTab;
+    var IsHyperlinkRun := (NextHyperlink > 0) and (Run.EndPos <= Hyperlinks[NextHyperlink - 1].EndPos);
+    if not IsHyperlinkRun then
+      ParseRun(Para, Run.Inner, '');
+  end;
 
-          var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
-          var TextMatch := TRegEx.Match(RunXml, TextPattern, [roIgnoreCase]);
-          if TextMatch.Success and (TextMatch.Groups.Count > 1) then
-          begin
-            var TextValue := TXml.Unescape(TextMatch.Groups[1].Value);
-            if TextValue <> '' then
-              Para.AddRun(TextValue);
-          end;
-        end;
-      end;
+  while NextHyperlink < Length(Hyperlinks) do
+  begin
+    ParseHyperlink(Para, Hyperlinks[NextHyperlink], HyperlinkMap);
+    Inc(NextHyperlink);
+  end;
+end;
 
-      if Para.GetRunCount > 0 then
-        FParagraphs.Add(Para)
-      else
-        Para.Free;
+procedure TWordDocument.ParseHyperlink(const Para: TWordParagraph; const Hyperlink: TXmlElement;
+  const HyperlinkMap: TDictionary<string, string>);
+begin
+  var Url := '';
+
+  var RelIdMatch := TRegEx.Match(Hyperlink.OpenTag, 'r:id="([^"]*)"', [roIgnoreCase]);
+  if RelIdMatch.Success and (RelIdMatch.Groups.Count > 1) then
+    HyperlinkMap.TryGetValue(RelIdMatch.Groups[1].Value, Url);
+
+  for var Run in TXml.FindElements(Hyperlink.Inner, ElementRun) do
+    ParseRun(Para, Run.Inner, Url);
+end;
+
+procedure TWordDocument.ParseRun(const Para: TWordParagraph; const RunXml, Hyperlink: string);
+begin
+  for var Match in TRegEx.Matches(RunXml, RunContentPattern, [roIgnoreCase]) do
+  begin
+    if Match.Value.StartsWith('<w:br') then
+      Para.AddLineBreak
+    else if Match.Value.StartsWith('<w:tab') then
+      Para.AddTab
+    else if Match.Groups.Count > 1 then
+    begin
+      var TextValue := TXml.Unescape(Match.Groups[1].Value);
+      if TextValue <> '' then
+        Para.AddRun(TextValue).Hyperlink := Hyperlink;
     end;
   end;
 end;
@@ -1500,10 +1595,15 @@ end;
 
 procedure TWordDocument.ParseHeaderFooterXml(const XmlContent: string; const Target: IWordHeaderFooter);
 begin
-  var TextPattern := '<w:t[^>]*>([^<]*)</w:t>';
-  var Match := TRegEx.Match(XmlContent, TextPattern, [roIgnoreCase]);
-  if Match.Success and (Match.Groups.Count > 1) then
-    Target.Text := TXml.Unescape(Match.Groups[1].Value);
+  var Builder := TStringBuilder.Create;
+  try
+    for var Match in TRegEx.Matches(XmlContent, TextElementPattern, [roIgnoreCase]) do
+      Builder.Append(TXml.Unescape(Match.Groups[1].Value));
+
+    Target.Text := Builder.ToString;
+  finally
+    Builder.Free;
+  end;
 end;
 
 end.
