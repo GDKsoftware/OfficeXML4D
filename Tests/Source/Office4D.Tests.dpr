@@ -29,6 +29,7 @@ uses
   Office4D.Tests.Metadata in 'Office4D.Tests.Metadata.pas',
   Office4D.Tests.Word in 'Office4D.Tests.Word.pas',
   Office4D.Tests.Word.Write in 'Office4D.Tests.Word.Write.pas',
+  Office4D.Tests.Word.AlternateContent in 'Office4D.Tests.Word.AlternateContent.pas',
   Office4D.Tests.Excel in 'Office4D.Tests.Excel.pas',
   Office4D.Tests.Excel.Write in 'Office4D.Tests.Excel.Write.pas',
   Office4D.Tests.PowerPoint in 'Office4D.Tests.PowerPoint.pas',
