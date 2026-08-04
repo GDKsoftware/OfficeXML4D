@@ -108,6 +108,9 @@
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.Workbook.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.Document.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.pas"/>
+        <DCCReference Include="..\..\Source\Word\Office4D.Word.Model.pas"/>
+        <DCCReference Include="..\..\Source\Word\Office4D.Word.Reader.pas"/>
+        <DCCReference Include="..\..\Source\Word\Office4D.Word.Writer.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.pas"/>
         <DCCReference Include="..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas"/>
         <BuildConfiguration Include="Base">
@@ -1032,3 +1035,4 @@
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
     <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
 </Project>
+

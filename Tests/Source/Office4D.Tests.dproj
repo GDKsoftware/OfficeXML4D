@@ -150,6 +150,9 @@
         <DCCReference Include="..\..\Source\Core\Office4D.Xml.pas"/>
         <DCCReference Include="..\..\Source\Common\Office4D.Metadata.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.pas"/>
+        <DCCReference Include="..\..\Source\Word\Office4D.Word.Model.pas"/>
+        <DCCReference Include="..\..\Source\Word\Office4D.Word.Reader.pas"/>
+        <DCCReference Include="..\..\Source\Word\Office4D.Word.Writer.pas"/>
         <DCCReference Include="..\..\Source\Word\Office4D.Word.Document.pas"/>
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.pas"/>
         <DCCReference Include="..\..\Source\Excel\Office4D.Excel.Workbook.pas"/>
@@ -213,5 +216,6 @@
     <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
 </Project>
+
 
 
