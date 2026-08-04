@@ -5,7 +5,9 @@ interface
 uses
   System.SysUtils,
   System.DateUtils,
-  System.RegularExpressions;
+  System.RegularExpressions,
+  Office4D.Package,
+  Office4D.Types;
 
 type
   TDocumentMetadata = record
@@ -29,9 +31,33 @@ type
     function ParseW3CDateTime(const DateStr: string): TDateTime;
   public
     function Parse(const XmlContent: string): TDocumentMetadata;
+
+    /// <summary>
+    /// Reads the core properties of an opened package. A package that carries
+    /// no docProps/core.xml yields cleared metadata rather than an error: the
+    /// part is optional, and every format in this library treats it that way.
+    /// </summary>
+    class function ParsePackage(const Package: TOXMLPackage): TDocumentMetadata; static;
   end;
 
 implementation
+
+{ TMetadataParser }
+
+class function TMetadataParser.ParsePackage(const Package: TOXMLPackage): TDocumentMetadata;
+begin
+  Result.Clear;
+
+  if not Package.PartExists(PartCoreProperties) then
+    Exit;
+
+  var Parser := TMetadataParser.Create;
+  try
+    Result := Parser.Parse(Package.GetPartContent(PartCoreProperties));
+  finally
+    Parser.Free;
+  end;
+end;
 
 { TDocumentMetadata }
 

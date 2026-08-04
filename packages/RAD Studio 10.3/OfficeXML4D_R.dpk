@@ -40,6 +40,9 @@ contains
   Office4D.Types in '..\..\Source\Core\Office4D.Types.pas',
   Office4D.Xml in '..\..\Source\Core\Office4D.Xml.pas',
   Office4D.Excel in '..\..\Source\Excel\Office4D.Excel.pas',
+  Office4D.Excel.Model in '..\..\Source\Excel\Office4D.Excel.Model.pas',
+  Office4D.Excel.Reader in '..\..\Source\Excel\Office4D.Excel.Reader.pas',
+  Office4D.Excel.Writer in '..\..\Source\Excel\Office4D.Excel.Writer.pas',
   Office4D.Excel.Workbook in '..\..\Source\Excel\Office4D.Excel.Workbook.pas',
   Office4D.Word.Document in '..\..\Source\Word\Office4D.Word.Document.pas',
   Office4D.Word in '..\..\Source\Word\Office4D.Word.pas',
@@ -47,6 +50,9 @@ contains
   Office4D.Word.Reader in '..\..\Source\Word\Office4D.Word.Reader.pas',
   Office4D.Word.Writer in '..\..\Source\Word\Office4D.Word.Writer.pas',
   Office4D.PowerPoint in '..\..\Source\PowerPoint\Office4D.PowerPoint.pas',
+  Office4D.PowerPoint.Model in '..\..\Source\PowerPoint\Office4D.PowerPoint.Model.pas',
+  Office4D.PowerPoint.Reader in '..\..\Source\PowerPoint\Office4D.PowerPoint.Reader.pas',
+  Office4D.PowerPoint.Writer in '..\..\Source\PowerPoint\Office4D.PowerPoint.Writer.pas',
   Office4D.PowerPoint.Presentation in '..\..\Source\PowerPoint\Office4D.PowerPoint.Presentation.pas';
 
 end.
