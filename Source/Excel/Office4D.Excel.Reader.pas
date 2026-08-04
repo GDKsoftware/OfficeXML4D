@@ -98,7 +98,7 @@ begin
   for var Match in Matches do
     if Match.Groups.Count > 1 then
     begin
-      const Sheet = FContent.CreateSheet(Match.Groups[1].Value);
+      const Sheet = FContent.CreateSheet(TXml.Unescape(Match.Groups[1].Value));
       const StateMatch = TRegEx.Match(Match.Groups[2].Value, 'state="([^"]+)"', [roIgnoreCase]);
       if StateMatch.Success then
       begin

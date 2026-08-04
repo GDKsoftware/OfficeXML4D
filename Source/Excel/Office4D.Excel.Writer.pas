@@ -1,4 +1,4 @@
-unit Office4D.Excel.Writer;
+﻿unit Office4D.Excel.Writer;
 
 interface
 
@@ -223,7 +223,7 @@ begin
         StateAttr := ' state="hidden"'
       else if FContent.Sheets[I].Visibility = TExcelSheetVisibility.VeryHidden then
         StateAttr := ' state="veryHidden"';
-      SB.Append('<sheet name="' + FContent.Sheets[I].Name + '" sheetId="' + IntToStr(I + 1) + '"' + StateAttr + ' r:id="rId' + IntToStr(I + 1) + '"/>');
+      SB.Append('<sheet name="' + TXml.Escape(FContent.Sheets[I].Name) + '" sheetId="' + IntToStr(I + 1) + '"' + StateAttr + ' r:id="rId' + IntToStr(I + 1) + '"/>')
     end;
     SB.Append('</sheets>');
     SB.Append('</workbook>');
