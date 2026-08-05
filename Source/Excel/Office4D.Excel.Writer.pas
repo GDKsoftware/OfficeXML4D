@@ -1,4 +1,4 @@
-﻿unit Office4D.Excel.Writer;
+unit Office4D.Excel.Writer;
 
 interface
 
@@ -223,7 +223,7 @@ begin
         StateAttr := ' state="hidden"'
       else if FContent.Sheets[I].Visibility = TExcelSheetVisibility.VeryHidden then
         StateAttr := ' state="veryHidden"';
-      SB.Append('<sheet name="' + TXml.Escape(FContent.Sheets[I].Name) + '" sheetId="' + IntToStr(I + 1) + '"' + StateAttr + ' r:id="rId' + IntToStr(I + 1) + '"/>')
+      SB.Append('<sheet name="' + TXml.Escape(FContent.Sheets[I].Name) + '" sheetId="' + IntToStr(I + 1) + '"' + StateAttr + ' r:id="rId' + IntToStr(I + 1) + '"/>');
     end;
     SB.Append('</sheets>');
     SB.Append('</workbook>');
@@ -387,7 +387,7 @@ begin
             if Cell.GetHasFormula then
             begin
               const FloatVal = FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
-              SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + '><f>' + Cell.GetFormula + '</f><v>' + FloatVal + '</v></c>');
+              SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + '><f>' + TXml.Escape(Cell.GetFormula) + '</f><v>' + FloatVal + '</v></c>');
             end
             else
             case Cell.CellType of

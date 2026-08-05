@@ -730,7 +730,7 @@ begin
         const SiIdx = StrToIntDef(SfMatch.Groups[2].Value, -1);
         if SiIdx >= 0 then
           SharedFormulas.AddOrSetValue(SiIdx,
-            TPair<string, string>.Create(SfMatch.Groups[1].Value, SfMatch.Groups[3].Value));
+            TPair<string, string>.Create(SfMatch.Groups[1].Value, TXml.Unescape(SfMatch.Groups[3].Value)));
       end;
 
     // Match each cell element. Self-closing <c r=".."/> empty cells are excluded via
@@ -751,7 +751,7 @@ begin
         const Address = Match.Groups[1].Value;
         const StyleIdx = StrToIntDef(Match.Groups[2].Value, 0);
         const CellType = Match.Groups[3].Value;
-        var   Formula: string := Match.Groups[4].Value;
+        var   Formula: string := TXml.Unescape(Match.Groups[4].Value);
         const SiIndex  = Match.Groups[5].Value;
         const Value    = Match.Groups[6].Value;
 
