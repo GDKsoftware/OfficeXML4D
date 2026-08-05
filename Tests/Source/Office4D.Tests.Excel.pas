@@ -198,6 +198,9 @@ type
 
     [Test]
     procedure SetFormula_RoundTrip_PreservesFormula;
+
+    [Test]
+    procedure SetFormula_RoundTrip_PreservesSpecialCharacters;
   end;
 
   [TestFixture]
@@ -597,6 +600,24 @@ begin
   Assert.IsTrue(Workbook2.Sheets[0].Cell['C1'].HasFormula);
   Assert.AreEqual('A1*B1', Workbook2.Sheets[0].Cell['C1'].Formula);
   Assert.AreEqual(Double(75), Workbook2.Sheets[0].Cell['C1'].AsFloat);
+end;
+
+procedure TExcelFormulaTests.SetFormula_RoundTrip_PreservesSpecialCharacters;
+begin
+  // Comparison operators and string concatenation are everyday formula syntax, so the
+  // formula text must be XML-escaped when written into <f> and unescaped when read back,
+  // the same as any other user-supplied text in this library.
+  const Formula = 'IF(A1<B1,"a&b",A1&">")';
+  var Sheet := FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 5;
+  Sheet.Cell['B1'].AsFloat := 15;
+  Sheet.Cell['C1'].SetFormula(Formula, 0);
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Workbook2 := TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+
+  Assert.AreEqual(Formula, Workbook2.Sheets[0].Cell['C1'].Formula, 'Formula special characters should round-trip');
 end;
 
 { TExcelLayoutTests }
