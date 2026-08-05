@@ -37,6 +37,9 @@ type
     procedure RoundTrip_SpecialCharacters_ArePreserved;
 
     [Test]
+    procedure RoundTrip_SheetNameWithSpecialCharacters_ArePreserved;
+
+    [Test]
     procedure SaveToFile_ValidatesAsZip;
 
     [Test]
@@ -1228,6 +1231,22 @@ begin
   const Workbook2 = TExcelWorkbookFactory.Create;
   Workbook2.LoadFromFile(FTempFile);
   Assert.AreEqual(Special, Workbook2.Sheets[0].Cell['A1'].AsString, 'Cell special characters should round-trip');
+end;
+
+procedure TExcelWriteTests.RoundTrip_SheetNameWithSpecialCharacters_ArePreserved;
+begin
+  // None of these characters are in Excel's forbidden sheet-name set (\ / ? * [ ] :),
+  // so this is a legal sheet name -- the sheet name itself must still be XML-escaped
+  // when written into workbook.xml and unescaped when read back, same as any other
+  // user-supplied text in this library.
+  const SpecialName = 'R&D <tag> "q" ''a'' 5>3';
+  FWorkbook.AddSheet(SpecialName);
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  Assert.AreEqual(SpecialName, Workbook2.Sheets[0].Name, 'Sheet name special characters should round-trip');
 end;
 
 procedure TExcelWriteTests.AddSheet_NewSheet_IsVisible;
