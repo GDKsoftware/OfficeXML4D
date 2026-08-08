@@ -53,7 +53,7 @@ procedure TXmlFindElementsTests.FindElements_SiblingElements_ReturnsEachInDocume
 begin
   var Elements := TXml.FindElements('<w:p><w:r>A</w:r><w:r>B</w:r></w:p>', 'w:r');
 
-  Assert.AreEqual(2, Length(Elements));
+  Assert.AreEqual(2, Integer(Length(Elements)));
   Assert.AreEqual('A', Elements[0].Inner);
   Assert.AreEqual('B', Elements[1].Inner);
 end;
@@ -62,7 +62,7 @@ procedure TXmlFindElementsTests.FindElements_NestedSameName_ReturnsOuterElementO
 begin
   var Elements := TXml.FindElements('<w:body><w:p>outer<w:p>inner</w:p></w:p></w:body>', 'w:p');
 
-  Assert.AreEqual(1, Length(Elements));
+  Assert.AreEqual(1, Integer(Length(Elements)));
   Assert.AreEqual('outer<w:p>inner</w:p>', Elements[0].Inner);
 end;
 
@@ -70,7 +70,7 @@ procedure TXmlFindElementsTests.FindElements_NestedSameName_KeepsContentAfterNes
 begin
   var Elements := TXml.FindElements('<w:p><w:p>inner</w:p>tail</w:p>', 'w:p');
 
-  Assert.AreEqual(1, Length(Elements));
+  Assert.AreEqual(1, Integer(Length(Elements)));
   Assert.AreEqual('<w:p>inner</w:p>tail', Elements[0].Inner);
 end;
 
@@ -78,7 +78,7 @@ procedure TXmlFindElementsTests.FindElements_LongerElementName_IsNotMatched;
 begin
   var Elements := TXml.FindElements('<w:rPr><w:b/></w:rPr><w:r>text</w:r>', 'w:r');
 
-  Assert.AreEqual(1, Length(Elements));
+  Assert.AreEqual(1, Integer(Length(Elements)));
   Assert.AreEqual('text', Elements[0].Inner);
 end;
 
@@ -86,7 +86,7 @@ procedure TXmlFindElementsTests.FindElements_SelfClosingElement_ReturnsEmptyInne
 begin
   var Elements := TXml.FindElements('<w:p><w:r/></w:p>', 'w:r');
 
-  Assert.AreEqual(1, Length(Elements));
+  Assert.AreEqual(1, Integer(Length(Elements)));
   Assert.AreEqual('', Elements[0].Inner);
 end;
 
@@ -94,7 +94,7 @@ procedure TXmlFindElementsTests.FindElements_AttributeContainingAngleBracket_Fin
 begin
   var Elements := TXml.FindElements('<v:shape style="a>b"><w:r>text</w:r></v:shape>', 'v:shape');
 
-  Assert.AreEqual(1, Length(Elements));
+  Assert.AreEqual(1, Integer(Length(Elements)));
   Assert.AreEqual('<w:r>text</w:r>', Elements[0].Inner);
 end;
 
@@ -102,7 +102,7 @@ procedure TXmlFindElementsTests.FindElements_OpenTag_ContainsAttributes;
 begin
   var Elements := TXml.FindElements('<w:hyperlink r:id="rId7">text</w:hyperlink>', 'w:hyperlink');
 
-  Assert.AreEqual(1, Length(Elements));
+  Assert.AreEqual(1, Integer(Length(Elements)));
   Assert.AreEqual('<w:hyperlink r:id="rId7">', Elements[0].OpenTag);
 end;
 
@@ -110,7 +110,7 @@ procedure TXmlFindElementsTests.FindElements_UnknownElement_ReturnsNothing;
 begin
   var Elements := TXml.FindElements('<w:p><w:r>A</w:r></w:p>', 'w:tbl');
 
-  Assert.AreEqual(0, Length(Elements));
+  Assert.AreEqual(0, Integer(Length(Elements)));
 end;
 
 procedure TXmlFindElementsTests.RemoveElements_NestedElements_CutsThemOut;
