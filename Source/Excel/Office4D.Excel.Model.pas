@@ -451,6 +451,7 @@ procedure TExcelCell.SetAsString(const Value: string);
 begin
   FStringValue := Value;
   FCellType := TCellType.StringValue;
+  FFormula := '';
 end;
 
 function TExcelCell.GetAsFloat: Double;
@@ -463,6 +464,7 @@ begin
   FFloatValue := Value;
   FStringValue := '';
   FCellType := TCellType.Number;
+  FFormula := '';
 end;
 
 function TExcelCell.GetAsBoolean: Boolean;
@@ -474,6 +476,7 @@ procedure TExcelCell.SetAsBoolean(const Value: Boolean);
 begin
   FBooleanValue := Value;
   FCellType := TCellType.Boolean;
+  FFormula := '';
 end;
 
 function TExcelCell.GetAsDateTime: TDateTime;
@@ -491,6 +494,7 @@ begin
   FDateTimeValue := Value;
   FFloatValue := Value;
   FCellType := TCellType.DateTime;
+  FFormula := '';
 end;
 
 function TExcelCell.GetIsString: Boolean;
@@ -909,10 +913,12 @@ end;
 
 procedure TExcelSheet.SetCellFormula(const Address, Formula, Value: string);
 begin
+  // Assign the cached value first: setting a value clears the formula, so the
+  // formula has to be applied afterwards to survive.
   var Cell := GetCell(Address) as TExcelCell;
-  Cell.FFormula := Formula;
   Cell.SetAsFloat(StrToFloatDef(Value, 0, TFormatSettings.Invariant));
   Cell.FStringValue := Value;
+  Cell.FFormula := Formula;
 end;
 
 procedure TExcelSheet.ClearColumn(const Column: string);
