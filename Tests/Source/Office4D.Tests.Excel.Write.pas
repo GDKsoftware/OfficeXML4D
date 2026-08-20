@@ -181,6 +181,9 @@ type
     procedure RoundTrip_EmptyStringCell_PreservesAdjacentValues;
 
     [Test]
+    procedure SaveToFile_ManyDistinctStrings_DeduplicatesAndIndexesCorrectly;
+
+    [Test]
     procedure SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
 
     [Test]
@@ -1134,6 +1137,45 @@ begin
   Assert.AreEqual('Left', Workbook2.Sheets[0].Cell['A1'].AsString);
   Assert.AreEqual('', Workbook2.Sheets[0].Cell['B1'].AsString);
   Assert.AreEqual('Right', Workbook2.Sheets[0].Cell['C1'].AsString);
+end;
+
+procedure TExcelWriteTests.SaveToFile_ManyDistinctStrings_DeduplicatesAndIndexesCorrectly;
+const
+  RowCount = 2000;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+
+  // Column A is distinct on every row, column B repeats a handful of values:
+  // together they cover both sides of the shared string table, the strings that
+  // earn an entry of their own and the ones that have to find an existing one.
+  for var Row := 1 to RowCount do
+  begin
+    Sheet.Cell['A' + IntToStr(Row)].AsString := 'Unique ' + IntToStr(Row);
+    Sheet.Cell['B' + IntToStr(Row)].AsString := 'Repeated ' + IntToStr(Row mod 10);
+  end;
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const SharedXml = Package.GetPartContent('xl/sharedStrings.xml');
+
+    // RowCount distinct values in column A plus the 10 recurring ones in column B.
+    Assert.IsTrue(Pos('uniqueCount="' + IntToStr(RowCount + 10) + '"', SharedXml) > 0,
+      'Repeated strings should share a single sharedStrings entry');
+  finally
+    Package.Free;
+  end;
+
+  // Reading the values back proves each cell kept its own index rather than
+  // pointing at a neighbour's entry.
+  const Workbook2 = TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+  Assert.AreEqual('Unique 1', Workbook2.Sheets[0].Cell['A1'].AsString);
+  Assert.AreEqual('Unique ' + IntToStr(RowCount), Workbook2.Sheets[0].Cell['A' + IntToStr(RowCount)].AsString);
+  Assert.AreEqual('Repeated 1', Workbook2.Sheets[0].Cell['B1'].AsString);
+  Assert.AreEqual('Repeated ' + IntToStr(RowCount mod 10), Workbook2.Sheets[0].Cell['B' + IntToStr(RowCount)].AsString);
 end;
 
 procedure TExcelWriteTests.SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
