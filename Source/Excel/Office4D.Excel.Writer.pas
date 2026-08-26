@@ -19,8 +19,13 @@ type
   private
     FContent: TExcelWorkbookContent;
 
+    // Position of every shared string within the list BuildSharedStrings returns.
+    // The list stays the ordered form the sharedStrings part is written from;
+    // membership and index lookups go through this map, so neither is a scan.
+    FSharedStringIndex: TDictionary<string, Integer>;
+
     function BuildSharedStrings: TList<string>;
-    function GetSharedStringIndex(const Strings: TList<string>; const Value: string): Integer;
+    function GetSharedStringIndex(const Value: string): Integer;
     function BuildStyleMap: TDictionary<string, Integer>;
     function GetStyleKey(const Cell: TExcelCell): string;
     function GetCellStyleIndex(const Cell: TExcelCell; const StyleMap: TDictionary<string, Integer>): Integer;
@@ -29,7 +34,7 @@ type
     function GenerateRels: string;
     function GenerateWorkbook: string;
     function GenerateWorkbookRels: string;
-    function GenerateSheet(const Sheet: TExcelSheet; const SharedStrings: TList<string>;
+    function GenerateSheet(const Sheet: TExcelSheet;
       const StyleMap: TDictionary<string, Integer>): string;
     function GenerateComments(const Sheet: TExcelSheet): string;
     function GenerateVmlDrawing(const Sheet: TExcelSheet): string;
@@ -37,10 +42,11 @@ type
     function GenerateSharedStrings(const Strings: TList<string>): string;
     function GenerateStyles(const StyleMap: TDictionary<string, Integer>): string;
 
-    procedure WriteSheets(const Zip: TZipFile; const SharedStrings: TList<string>;
+    procedure WriteSheets(const Zip: TZipFile;
       const StyleMap: TDictionary<string, Integer>);
   public
     constructor Create(const Content: TExcelWorkbookContent);
+    destructor Destroy; override;
 
     procedure WriteParts(const Zip: TZipFile);
   end;
@@ -73,6 +79,13 @@ constructor TExcelWorkbookWriter.Create(const Content: TExcelWorkbookContent);
 begin
   inherited Create;
   FContent := Content;
+  FSharedStringIndex := TDictionary<string, Integer>.Create;
+end;
+
+destructor TExcelWorkbookWriter.Destroy;
+begin
+  FSharedStringIndex.Free;
+  inherited;
 end;
 
 procedure TExcelWorkbookWriter.WriteParts(const Zip: TZipFile);
@@ -85,7 +98,7 @@ begin
     Zip.Add(TEncoding.UTF8.GetBytes(GenerateWorkbook), PartWorkbook);
     Zip.Add(TEncoding.UTF8.GetBytes(GenerateWorkbookRels), PartWorkbookRels);
 
-    WriteSheets(Zip, SharedStrings, StyleMap);
+    WriteSheets(Zip, StyleMap);
 
     if SharedStrings.Count > 0 then
       Zip.Add(TEncoding.UTF8.GetBytes(GenerateSharedStrings(SharedStrings)), PartSharedStrings);
@@ -97,7 +110,7 @@ begin
   end;
 end;
 
-procedure TExcelWorkbookWriter.WriteSheets(const Zip: TZipFile; const SharedStrings: TList<string>;
+procedure TExcelWorkbookWriter.WriteSheets(const Zip: TZipFile;
   const StyleMap: TDictionary<string, Integer>);
 begin
   var CommentsFileIndex := 0;
@@ -105,7 +118,7 @@ begin
   for var I := 0 to FContent.Sheets.Count - 1 do
   begin
     var ExcelSheet := FContent.Sheets[I] as TExcelSheet;
-    Zip.Add(TEncoding.UTF8.GetBytes(GenerateSheet(ExcelSheet, SharedStrings, StyleMap)),
+    Zip.Add(TEncoding.UTF8.GetBytes(GenerateSheet(ExcelSheet, StyleMap)),
       PartSheetPrefix + IntToStr(I + 1) + PartSheetSuffix);
 
     if not ExcelSheet.HasNotes then
@@ -125,6 +138,8 @@ end;
 function TExcelWorkbookWriter.BuildSharedStrings: TList<string>;
 begin
   Result := TList<string>.Create;
+  FSharedStringIndex.Clear;
+
   for var Sheet in FContent.Sheets do
   begin
     var ExcelSheet := Sheet as TExcelSheet;
@@ -132,15 +147,24 @@ begin
     begin
       var Cell := Pair.Value as TExcelCell;
       if (Cell.IsString) and (Cell.GetAsString <> '') then
-        if not Result.Contains(Cell.GetAsString) then
-          Result.Add(Cell.GetAsString);
+      begin
+        const Value = Cell.GetAsString;
+        // The map decides whether the string is already known, and remembers
+        // where it landed so GetSharedStringIndex never has to search for it.
+        if not FSharedStringIndex.ContainsKey(Value) then
+        begin
+          FSharedStringIndex.Add(Value, Result.Count);
+          Result.Add(Value);
+        end;
+      end;
     end;
   end;
 end;
 
-function TExcelWorkbookWriter.GetSharedStringIndex(const Strings: TList<string>; const Value: string): Integer;
+function TExcelWorkbookWriter.GetSharedStringIndex(const Value: string): Integer;
 begin
-  Result := Strings.IndexOf(Value);
+  if not FSharedStringIndex.TryGetValue(Value, Result) then
+    Result := -1;
 end;
 
 function TExcelWorkbookWriter.GenerateContentTypes: string;
@@ -250,7 +274,7 @@ begin
   end;
 end;
 
-function TExcelWorkbookWriter.GenerateSheet(const Sheet: TExcelSheet; const SharedStrings: TList<string>; const StyleMap: TDictionary<string, Integer>): string;
+function TExcelWorkbookWriter.GenerateSheet(const Sheet: TExcelSheet; const StyleMap: TDictionary<string, Integer>): string;
 begin
   var SB := TStringBuilder.Create;
   try
@@ -407,7 +431,7 @@ begin
                   end
                   else
                   begin
-                    const StrIdx = GetSharedStringIndex(SharedStrings, Cell.GetAsString);
+                    const StrIdx = GetSharedStringIndex(Cell.GetAsString);
                     SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + ' t="s"><v>' + IntToStr(StrIdx) + '</v></c>');
                   end;
                 end;
