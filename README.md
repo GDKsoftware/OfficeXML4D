@@ -403,3 +403,7 @@ MIT License - see [LICENSE](LICENSE) file
 2. Create a feature branch
 3. Write tests for new features
 4. Submit a pull request
+
+## Commercial Support
+
+This library is MIT licensed and free to use. For companies that depend on it commercially we offer support and maintenance agreements with guaranteed response times, and sponsored development of features you need. Contact us at [gdksoftware.com/contact-us](https://gdksoftware.com/contact-us) or open an issue to get in touch.
