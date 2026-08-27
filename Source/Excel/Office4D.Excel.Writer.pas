@@ -235,6 +235,16 @@ begin
   if (FContent.Sheets.Count > 0) and not HasVisibleSheet then
     raise EExcelWorkbookException.Create('A workbook must contain at least one visible sheet');
 
+  var HasFormulas := False;
+  for var Sheet in FContent.Sheets do
+  begin
+    if (Sheet as TExcelSheet).HasFormulas then
+    begin
+      HasFormulas := True;
+      Break;
+    end;
+  end;
+
   var SB := TStringBuilder.Create;
   try
     SB.Append(XmlDeclaration);
@@ -250,10 +260,12 @@ begin
       SB.Append('<sheet name="' + TXml.Escape(FContent.Sheets[I].Name) + '" sheetId="' + IntToStr(I + 1) + '"' + StateAttr + ' r:id="rId' + IntToStr(I + 1) + '"/>');
     end;
     SB.Append('</sheets>');
-    // Formulas are not evaluated here, so every cached <v> is whatever was read
-    // or last assigned. Ask Excel to recalculate the whole workbook on load so
-    // the displayed results match the cell values this writer produced.
-    SB.Append('<calcPr calcId="0" fullCalcOnLoad="1"/>');
+    // Formulas are not evaluated here, so a formula cell's cached <v> is stale
+    // as soon as anything it depends on is written. Ask Excel to recalculate on
+    // load, but only when there is a formula to recalculate: a workbook without
+    // formulas keeps the exact output it had before.
+    if HasFormulas then
+      SB.Append('<calcPr calcId="0" fullCalcOnLoad="1"/>');
     SB.Append('</workbook>');
     Result := SB.ToString;
   finally
