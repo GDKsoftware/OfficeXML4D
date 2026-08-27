@@ -848,8 +848,10 @@ end;
 function TExcelSheet.HasFormulas: Boolean;
 begin
   for var Pair in FCells do
+  begin
     if (Pair.Value as TExcelCell).GetHasFormula then
       Exit(True);
+  end;
   Result := False;
 end;
 

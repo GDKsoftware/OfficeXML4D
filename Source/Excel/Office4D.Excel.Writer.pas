@@ -237,11 +237,13 @@ begin
 
   var HasFormulas := False;
   for var Sheet in FContent.Sheets do
+  begin
     if (Sheet as TExcelSheet).HasFormulas then
     begin
       HasFormulas := True;
       Break;
     end;
+  end;
 
   var SB := TStringBuilder.Create;
   try
