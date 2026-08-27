@@ -136,6 +136,8 @@ type
     procedure SetNote(const Address: string; const Value: string);
     function HasNotes: Boolean;
 
+    function HasFormulas: Boolean;
+
     procedure ClearColumn(const Column: string);
     procedure ClearRow(const Row: Integer);
     procedure DeleteColumn(const Column: string);
@@ -841,6 +843,14 @@ end;
 function TExcelSheet.HasNotes: Boolean;
 begin
   Result := FNotes.Count > 0;
+end;
+
+function TExcelSheet.HasFormulas: Boolean;
+begin
+  for var Pair in FCells do
+    if (Pair.Value as TExcelCell).GetHasFormula then
+      Exit(True);
+  Result := False;
 end;
 
 class function TExcelSheet.ColumnLetterToNumber(const Column: string): Integer;

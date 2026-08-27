@@ -184,6 +184,12 @@ type
     procedure SaveToFile_ManyDistinctStrings_DeduplicatesAndIndexesCorrectly;
 
     [Test]
+    procedure SaveToFile_WithFormula_EmitsFullCalcOnLoad;
+
+    [Test]
+    procedure SaveToFile_WithoutFormulas_OmitsCalcPr;
+
+    [Test]
     procedure SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
 
     [Test]
@@ -1176,6 +1182,48 @@ begin
   Assert.AreEqual('Unique ' + IntToStr(RowCount), Workbook2.Sheets[0].Cell['A' + IntToStr(RowCount)].AsString);
   Assert.AreEqual('Repeated 1', Workbook2.Sheets[0].Cell['B1'].AsString);
   Assert.AreEqual('Repeated ' + IntToStr(RowCount mod 10), Workbook2.Sheets[0].Cell['B' + IntToStr(RowCount)].AsString);
+end;
+
+procedure TExcelWriteTests.SaveToFile_WithFormula_EmitsFullCalcOnLoad;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 10;
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const WorkbookXml = Package.GetPartContent('xl/workbook.xml');
+    // The library never evaluates formulas, so a formula's cached value may be
+    // stale; only a full recalculation on load makes Excel show correct results.
+    Assert.IsTrue(Pos('<calcPr calcId="0" fullCalcOnLoad="1"/>', WorkbookXml) > 0,
+      'A workbook with formulas should ask Excel to recalculate on load');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.SaveToFile_WithoutFormulas_OmitsCalcPr;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 10;
+  Sheet.Cell['B1'].AsString := 'Label';
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const WorkbookXml = Package.GetPartContent('xl/workbook.xml');
+    // Nothing to recalculate, so the workbook keeps the output it always had:
+    // no forced recalculation, no "save changes?" prompt after merely viewing.
+    Assert.IsTrue(Pos('<calcPr', WorkbookXml) = 0,
+      'A workbook without formulas should not carry a calcPr element');
+  finally
+    Package.Free;
+  end;
 end;
 
 procedure TExcelWriteTests.SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
