@@ -1,4 +1,11 @@
+<img src="logo.png" align="right" width="128" alt="OfficeXML4D logo"/>
+
 # Office4D
+
+[![Release](https://img.shields.io/github/v/release/GDKsoftware/OfficeXML4D?color=002151)](https://github.com/GDKsoftware/OfficeXML4D/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-65BA13)](LICENSE)
+![Delphi](https://img.shields.io/badge/Delphi-10.3%20--%2013-002151)
+![Platforms](https://img.shields.io/badge/platforms-Win32%20%7C%20Win64%20%7C%20Linux64-65BA13)
 
 Pure Delphi library for reading and writing Microsoft Office Open XML documents (.docx, .xlsx, .pptx).
 
