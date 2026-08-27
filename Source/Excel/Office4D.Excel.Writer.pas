@@ -250,6 +250,10 @@ begin
       SB.Append('<sheet name="' + TXml.Escape(FContent.Sheets[I].Name) + '" sheetId="' + IntToStr(I + 1) + '"' + StateAttr + ' r:id="rId' + IntToStr(I + 1) + '"/>');
     end;
     SB.Append('</sheets>');
+    // Formulas are not evaluated here, so every cached <v> is whatever was read
+    // or last assigned. Ask Excel to recalculate the whole workbook on load so
+    // the displayed results match the cell values this writer produced.
+    SB.Append('<calcPr calcId="0" fullCalcOnLoad="1"/>');
     SB.Append('</workbook>');
     Result := SB.ToString;
   finally

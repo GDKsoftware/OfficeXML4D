@@ -201,6 +201,15 @@ type
 
     [Test]
     procedure SetFormula_RoundTrip_PreservesSpecialCharacters;
+
+    [Test]
+    procedure AssignValue_OverFormulaCell_ClearsFormula;
+
+    [Test]
+    procedure AssignValue_OverFormulaCell_RoundTripKeepsValue;
+
+    [Test]
+    procedure AssignString_OverFormulaCell_ClearsFormula;
   end;
 
   [TestFixture]
@@ -618,6 +627,48 @@ begin
   Workbook2.LoadFromFile(FTempFile);
 
   Assert.AreEqual(Formula, Workbook2.Sheets[0].Cell['C1'].Formula, 'Formula special characters should round-trip');
+end;
+
+procedure TExcelFormulaTests.AssignValue_OverFormulaCell_ClearsFormula;
+begin
+  // Assigning a literal replaces a formula, exactly as typing into the cell does in Excel.
+  // Leaving the formula in place would turn the assigned value into a mere cached result
+  // that Excel discards on the next recalculation.
+  var Sheet := FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 10;
+  Sheet.Cell['C1'].SetFormula('A1*2', 20);
+
+  Sheet.Cell['C1'].AsFloat := 99;
+
+  Assert.IsFalse(Sheet.Cell['C1'].HasFormula, 'Formula should be gone');
+  Assert.AreEqual('', Sheet.Cell['C1'].Formula);
+  Assert.AreEqual(Double(99), Sheet.Cell['C1'].AsFloat);
+end;
+
+procedure TExcelFormulaTests.AssignValue_OverFormulaCell_RoundTripKeepsValue;
+begin
+  var Sheet := FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 10;
+  Sheet.Cell['C1'].SetFormula('A1*2', 20);
+  Sheet.Cell['C1'].AsFloat := 99;
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Workbook2 := TExcelWorkbookFactory.Create;
+  Workbook2.LoadFromFile(FTempFile);
+
+  Assert.IsFalse(Workbook2.Sheets[0].Cell['C1'].HasFormula, 'Formula should not be written');
+  Assert.AreEqual(Double(99), Workbook2.Sheets[0].Cell['C1'].AsFloat);
+end;
+
+procedure TExcelFormulaTests.AssignString_OverFormulaCell_ClearsFormula;
+begin
+  var Sheet := FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['C1'].SetFormula('A1*2', 20);
+
+  Sheet.Cell['C1'].AsString := 'Label';
+
+  Assert.IsFalse(Sheet.Cell['C1'].HasFormula, 'Formula should be gone');
+  Assert.AreEqual('Label', Sheet.Cell['C1'].AsString);
 end;
 
 { TExcelLayoutTests }
