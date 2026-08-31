@@ -4,6 +4,7 @@ metadata:
   id: GDK.OfficeXML4D
   version: 1.2.0
   description: 'Pure Delphi library for reading and writing Microsoft Office Open XML documents (.docx, .xlsx).'
+  icon: logo.png
   authors:
     - Marco Geuze
   projectUrl: https://github.com/GDKsoftware/OfficeXML4D
