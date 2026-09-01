@@ -145,6 +145,8 @@ type
     function GetSheet(Index: Integer): IExcelSheet;
     function GetSheetByName(const Name: string): IExcelSheet;
     function GetMetadata: TDocumentMetadata;
+    function GetRecalculateOnLoad: Boolean;
+    procedure SetRecalculateOnLoad(const Value: Boolean);
 
     function AddSheet(const Name: string): IExcelSheet;
     procedure RemoveSheet(Index: Integer);
@@ -154,6 +156,11 @@ type
     property Sheets[Index: Integer]: IExcelSheet read GetSheet;
     function SheetByName(const Name: string): IExcelSheet;
     property Metadata: TDocumentMetadata read GetMetadata;
+    /// When True (the default), a workbook that contains formulas asks Excel to
+    /// recalculate on load so cached formula results never show stale values.
+    /// Excel then treats the file as modified and prompts to save on close, even
+    /// when nothing was edited. Set to False to keep the cached values as written.
+    property RecalculateOnLoad: Boolean read GetRecalculateOnLoad write SetRecalculateOnLoad;
   end;
 
   TExcelWorkbookFactory = class

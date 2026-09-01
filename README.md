@@ -198,6 +198,12 @@ begin
   Sheet.Cell['B4'].Bold := True;
   Sheet.Cell['B4'].NumberFormat := '"$"#,##0.00';
 
+  // The library does not evaluate formulas. By default a workbook with formulas
+  // asks Excel to recalculate on load, so the calculated values above are never
+  // shown stale - but Excel then prompts to save on close, even if nothing was
+  // edited. Disable this to keep the cached values exactly as written:
+  Workbook.RecalculateOnLoad := False;
+
   // Boolean and DateTime
   Sheet.Cell['C2'].AsBoolean := True;
   Sheet.Cell['D2'].AsDateTime := Now;
@@ -361,7 +367,7 @@ Examples/      - Demo application
 - Cell styling: background color, border style, border color
 - Text formatting: bold, italic, underline, strikeout
 - Number formats (currency, percentage, custom)
-- Formulas with calculated values
+- Formulas with calculated values (optional recalculation on load via `RecalculateOnLoad`)
 - Column widths
 - Merged cells
 - Freeze panes

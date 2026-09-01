@@ -173,6 +173,7 @@ type
   private
     FSheets: TList<IExcelSheet>;
     FMetadata: TDocumentMetadata;
+    FRecalculateOnLoad: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -191,6 +192,7 @@ type
 
     property Sheets: TList<IExcelSheet> read FSheets;
     property Metadata: TDocumentMetadata read FMetadata write FMetadata;
+    property RecalculateOnLoad: Boolean read FRecalculateOnLoad write FRecalculateOnLoad;
   end;
 
 implementation
@@ -1139,6 +1141,7 @@ begin
   inherited Create;
   FSheets := TList<IExcelSheet>.Create;
   FMetadata.Clear;
+  FRecalculateOnLoad := True;
 end;
 
 destructor TExcelWorkbookContent.Destroy;
