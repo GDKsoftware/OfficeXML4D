@@ -263,8 +263,9 @@ begin
     // Formulas are not evaluated here, so a formula cell's cached <v> is stale
     // as soon as anything it depends on is written. Ask Excel to recalculate on
     // load, but only when there is a formula to recalculate: a workbook without
-    // formulas keeps the exact output it had before.
-    if HasFormulas then
+    // formulas carries no calcPr at all. The recalculation makes Excel prompt to
+    // save on close, so the caller can opt out via RecalculateOnLoad.
+    if HasFormulas and FContent.RecalculateOnLoad then
       SB.Append('<calcPr calcId="0" fullCalcOnLoad="1"/>');
     SB.Append('</workbook>');
     Result := SB.ToString;

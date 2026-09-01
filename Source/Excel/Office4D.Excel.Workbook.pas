@@ -35,6 +35,8 @@ type
     function GetSheet(Index: Integer): IExcelSheet;
     function GetSheetByName(const Name: string): IExcelSheet;
     function GetMetadata: TDocumentMetadata;
+    function GetRecalculateOnLoad: Boolean;
+    procedure SetRecalculateOnLoad(const Value: Boolean);
 
     function AddSheet(const Name: string): IExcelSheet;
     function SheetByName(const Name: string): IExcelSheet;
@@ -154,6 +156,16 @@ end;
 function TExcelWorkbook.GetMetadata: TDocumentMetadata;
 begin
   Result := FContent.Metadata;
+end;
+
+function TExcelWorkbook.GetRecalculateOnLoad: Boolean;
+begin
+  Result := FContent.RecalculateOnLoad;
+end;
+
+procedure TExcelWorkbook.SetRecalculateOnLoad(const Value: Boolean);
+begin
+  FContent.RecalculateOnLoad := Value;
 end;
 
 function TExcelWorkbook.AddSheet(const Name: string): IExcelSheet;

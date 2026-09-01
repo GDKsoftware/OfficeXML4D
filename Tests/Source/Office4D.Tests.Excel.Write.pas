@@ -190,6 +190,12 @@ type
     procedure SaveToFile_WithoutFormulas_OmitsCalcPr;
 
     [Test]
+    procedure RecalculateOnLoad_NewWorkbook_IsTrue;
+
+    [Test]
+    procedure SaveToFile_RecalculateOnLoadDisabled_OmitsCalcPr;
+
+    [Test]
     procedure SaveToFile_DateCell_UsesLocaleAwareShortDateFormat;
 
     [Test]
@@ -1221,6 +1227,33 @@ begin
     // no forced recalculation, no "save changes?" prompt after merely viewing.
     Assert.IsTrue(Pos('<calcPr', WorkbookXml) = 0,
       'A workbook without formulas should not carry a calcPr element');
+  finally
+    Package.Free;
+  end;
+end;
+
+procedure TExcelWriteTests.RecalculateOnLoad_NewWorkbook_IsTrue;
+begin
+  Assert.IsTrue(FWorkbook.RecalculateOnLoad, 'Recalculation on load should be on by default');
+end;
+
+procedure TExcelWriteTests.SaveToFile_RecalculateOnLoadDisabled_OmitsCalcPr;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsFloat := 10;
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+  FWorkbook.RecalculateOnLoad := False;
+
+  FWorkbook.SaveToFile(FTempFile);
+
+  var Package := TOXMLPackage.Create;
+  try
+    Package.Open(FTempFile);
+    const WorkbookXml = Package.GetPartContent('xl/workbook.xml');
+    // The caller opted out, so the cached formula values are kept as written and
+    // Excel does not prompt to save after merely viewing the file.
+    Assert.IsTrue(Pos('<calcPr', WorkbookXml) = 0,
+      'RecalculateOnLoad = False should suppress the calcPr element');
   finally
     Package.Free;
   end;
