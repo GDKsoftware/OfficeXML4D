@@ -719,15 +719,9 @@ begin
   // We need the master address to compute row/column offsets for relative-reference adjustment.
   var SharedFormulas := TDictionary<Integer, TPair<string, string>>.Create;
   try
-    // Scan backwards in the XML: for each master cell (<c r="ADDR">...<f ... si="N">formula</f>...)
-    // capture ADDR, N, and formula. We match the whole <c>...</c> block. The (?<!/)>
-    // guard (matching CellMatches below) is essential here: without it, a self-closing
-    // <c r=".."/> cell is misread as an opening tag with no matching </c> nearby, so the
-    // (?:(?!</c>).)* content scan has to search past sibling self-closing cells looking
-    // for one that never comes -- and does this once per self-closing cell in the sheet,
-    // which is polynomial-time (verified empirically) and can exhaust the regex engine's
-    // backtracking stack on real-world files that are sparse/mostly-empty with styled
-    // self-closing cells and no formulas at all.
+    // Each master cell is <c r="ADDR">...<f ... si="N">formula</f>...</c>. The (?<!/)> guard
+    // (same as in CellMatches below) skips self-closing <c .../> cells: without it the content
+    // scan runs past every following cell looking for a </c> and overflows the regex stack.
     const SharedMasterMatches = TRegEx.Matches(Xml,
       '<c\s+r="([A-Z]+\d+)"[^>]*(?<!/)>(?:(?!</c>).)*<f\s[^>]*\bsi="(\d+)"[^>]*>([^<]+)</f>',
       [roIgnoreCase, roSingleLine]);
