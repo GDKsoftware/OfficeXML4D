@@ -185,6 +185,7 @@
         <DCCReference Include="Office4D.Tests.Excel.RemoveSheet.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.ClearColumnRow.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.DeleteColumnRow.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.SharedFormulaParsing.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
