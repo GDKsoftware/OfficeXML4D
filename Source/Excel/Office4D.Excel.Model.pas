@@ -87,6 +87,20 @@ type
     property IsString: Boolean read GetIsString;
   end;
 
+  /// Smallest rectangle that encloses every cell present in a sheet.
+  TExcelUsedBounds = record
+    FirstColumn: Integer;
+    FirstRow: Integer;
+    LastColumn: Integer;
+    LastRow: Integer;
+
+    class function Empty: TExcelUsedBounds; static;
+
+    procedure Include(const Column, Row: Integer);
+    function IsEmpty: Boolean;
+    function ToRange: string;
+  end;
+
   TExcelSheet = class(TInterfacedObject, IExcelSheet)
   private
     FName: string;
@@ -103,6 +117,7 @@ type
     procedure ClearLine(const AIsColumn: Boolean; const AIndex: Integer);
     procedure DeleteLine(const AIsColumn: Boolean; const AIndex: Integer);
     procedure RewriteOwnFormulas(const AIsColumn: Boolean; const AIndex: Integer);
+    function GetUsedBounds: TExcelUsedBounds;
   public
     /// Address arithmetic, shared with whoever reads or writes cell references.
     class function ColumnLetterToNumber(const Column: string): Integer; static;
@@ -149,6 +164,10 @@ type
     procedure SetDateTimeValue(const Address: string; const Value: Double);
 
     function GetCells: TDictionary<string, IExcelCell>;
+
+    function GetLastRow: Integer;
+    function GetLastColumn: Integer;
+    function GetUsedRange: string;
 
     /// Not part of IExcelSheet: only a reader restores a frozen state directly.
     procedure SetFrozenRows(const Value: Integer);
@@ -706,6 +725,48 @@ begin
   Result := (HasFont) or (HasFill) or (HasFormat) or (HasBorder) or (HasAlign);
 end;
 
+{ TExcelUsedBounds }
+
+class function TExcelUsedBounds.Empty: TExcelUsedBounds;
+begin
+  Result.FirstColumn := 0;
+  Result.FirstRow    := 0;
+  Result.LastColumn  := 0;
+  Result.LastRow     := 0;
+end;
+
+procedure TExcelUsedBounds.Include(const Column, Row: Integer);
+begin
+  if IsEmpty then
+  begin
+    FirstColumn := Column;
+    FirstRow    := Row;
+    LastColumn  := Column;
+    LastRow     := Row;
+    Exit;
+  end;
+
+  FirstColumn := Min(FirstColumn, Column);
+  FirstRow    := Min(FirstRow, Row);
+  LastColumn  := Max(LastColumn, Column);
+  LastRow     := Max(LastRow, Row);
+end;
+
+function TExcelUsedBounds.IsEmpty: Boolean;
+begin
+  Result := (LastRow = 0);
+end;
+
+function TExcelUsedBounds.ToRange: string;
+begin
+  if IsEmpty then
+    Exit('');
+
+  const FirstColumnLetters = TExcelSheet.ColumnNumberToLetters(FirstColumn);
+  const LastColumnLetters  = TExcelSheet.ColumnNumberToLetters(LastColumn);
+  Result := Format('%s%d:%s%d', [FirstColumnLetters, FirstRow, LastColumnLetters, LastRow]);
+end;
+
 { TExcelSheet }
 
 constructor TExcelSheet.Create(const Name: string);
@@ -746,6 +807,32 @@ end;
 function TExcelSheet.GetCells: TDictionary<string, IExcelCell>;
 begin
   Result := FCells;
+end;
+
+function TExcelSheet.GetLastRow: Integer;
+begin
+  Result := GetUsedBounds.LastRow;
+end;
+
+function TExcelSheet.GetLastColumn: Integer;
+begin
+  Result := GetUsedBounds.LastColumn;
+end;
+
+function TExcelSheet.GetUsedRange: string;
+begin
+  Result := GetUsedBounds.ToRange;
+end;
+
+function TExcelSheet.GetUsedBounds: TExcelUsedBounds;
+begin
+  Result := TExcelUsedBounds.Empty;
+  for var Address in FCells.Keys do
+  begin
+    var Column, Row: Integer;
+    ParseCellAddress(Address, Column, Row);
+    Result.Include(Column, Row);
+  end;
 end;
 
 procedure TExcelSheet.SetColumnWidth(const Column: string; const Width: Double);

@@ -53,7 +53,8 @@ uses
   Office4D.Tests.Excel.RemoveSheet in 'Office4D.Tests.Excel.RemoveSheet.pas',
   Office4D.Tests.Excel.ClearColumnRow in 'Office4D.Tests.Excel.ClearColumnRow.pas',
   Office4D.Tests.Excel.DeleteColumnRow in 'Office4D.Tests.Excel.DeleteColumnRow.pas',
-  Office4D.Tests.Excel.SharedFormulaParsing in 'Office4D.Tests.Excel.SharedFormulaParsing.pas';
+  Office4D.Tests.Excel.SharedFormulaParsing in 'Office4D.Tests.Excel.SharedFormulaParsing.pas',
+  Office4D.Tests.Excel.UsedRange in 'Office4D.Tests.Excel.UsedRange.pas';
 
 var
   Runner: ITestRunner;

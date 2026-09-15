@@ -298,6 +298,11 @@ begin
     SB.Append(XmlDeclaration);
     SB.Append('<worksheet xmlns="' + SpreadsheetNs + '" xmlns:r="' + NsOfficeDocumentRelationships + '">');
 
+    const UsedRange = Sheet.GetUsedRange;
+    const HasUsedRange = (UsedRange <> '');
+    if HasUsedRange then
+      SB.Append(Format('<dimension ref="%s"/>', [UsedRange]));
+
     const HasFrozenPanes = (Sheet.FrozenRows > 0) or (Sheet.FrozenColumns > 0);
     if HasFrozenPanes then
     begin

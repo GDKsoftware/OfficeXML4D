@@ -125,6 +125,10 @@ type
 
     function GetCells: TDictionary<string, IExcelCell>;
 
+    function GetLastRow: Integer;
+    function GetLastColumn: Integer;
+    function GetUsedRange: string;
+
     property Name: string read GetName;
     property Cell[const Address: string]: IExcelCell read GetCell;
     property Cells: TDictionary<string, IExcelCell> read GetCells;
@@ -132,6 +136,12 @@ type
     property FrozenRows: Integer read GetFrozenRows;
     property FrozenColumns: Integer read GetFrozenColumns;
     property Note[const Address: string]: string read GetNote write SetNote;
+    /// Extent of the populated area, derived from the cells present in the sheet.
+    /// LastRow and LastColumn are 1-based and 0 for an empty sheet; UsedRange is an
+    /// A1-style range such as 'B2:D10' and '' for an empty sheet.
+    property LastRow: Integer read GetLastRow;
+    property LastColumn: Integer read GetLastColumn;
+    property UsedRange: string read GetUsedRange;
   end;
 
   IExcelWorkbook = interface

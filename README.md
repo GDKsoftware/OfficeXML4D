@@ -157,6 +157,12 @@ begin
   // Check for formula
   if Sheet.Cell['E1'].HasFormula then
     WriteLn('Formula: ' + Sheet.Cell['E1'].Formula);
+
+  // Walk a sheet of unknown size. LastRow and LastColumn are 1-based and 0 for an
+  // empty sheet; UsedRange is the enclosing A1-style range, for example 'B2:D10'.
+  WriteLn('Used range: ' + Sheet.UsedRange);
+  for var Row := 1 to Sheet.LastRow do
+    WriteLn(Sheet.Cell['A' + IntToStr(Row)].AsString);
 end;
 ```
 
@@ -368,6 +374,7 @@ Examples/      - Demo application
 - Text formatting: bold, italic, underline, strikeout
 - Number formats (currency, percentage, custom)
 - Formulas with calculated values (optional recalculation on load via `RecalculateOnLoad`)
+- Used range of a sheet (`LastRow`, `LastColumn`, `UsedRange`)
 - Column widths
 - Merged cells
 - Freeze panes
