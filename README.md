@@ -238,6 +238,8 @@ begin
 end;
 ```
 
+`NumberFormat` takes the format code as Excel stores it in the file, in the invariant notation: `.` is the decimal separator and `,` the thousands separator, whatever the locale of the machine. Excel shows the code in the user's regional settings, so `#,##0.00` appears as `#.##0,00` in a German or Dutch Excel. Don't write the local form; `#.#` means one optional decimal, and a whole number then shows as `300.`.
+
 ### Editing Sheets, Columns and Rows
 
 ```pascal
