@@ -432,8 +432,11 @@ begin
 
             if Cell.GetHasFormula then
             begin
-              const FloatVal = FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
-              SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + '><f>' + TXml.Escape(Cell.GetFormula) + '</f><v>' + FloatVal + '</v></c>');
+              // A formula without a cached value is written without <v>.
+              var CachedValue := '';
+              if Cell.GetHasCachedValue then
+                CachedValue := '<v>' + FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant) + '</v>';
+              SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + '><f>' + TXml.Escape(Cell.GetFormula) + '</f>' + CachedValue + '</c>');
             end
             else
             case Cell.CellType of

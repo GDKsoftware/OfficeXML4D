@@ -210,6 +210,20 @@ begin
   // edited. Disable this to keep the cached values exactly as written:
   Workbook.RecalculateOnLoad := False;
 
+  // Replace a formula's cached value, or drop it so the formula is written
+  // without one. Both raise EExcelWorkbookException on a cell without a formula.
+  Sheet.Cell['B4'].SetCachedValue(1028.95);
+  Sheet.Cell['B4'].ClearCachedValue;
+  if not Sheet.Cell['B4'].HasCachedValue then
+    WriteLn('B4 has no cached value');
+
+  // A formula can also be set without a cached value
+  Sheet.Cell['B5'].SetFormula('B4*1.21');
+
+  // Drop the cached values of every formula on a sheet, or in the workbook
+  Sheet.ClearCachedValues;
+  Workbook.ClearCachedValues;
+
   // Boolean and DateTime
   Sheet.Cell['C2'].AsBoolean := True;
   Sheet.Cell['D2'].AsDateTime := Now;
@@ -376,6 +390,7 @@ Examples/      - Demo application
 - Text formatting: bold, italic, underline, strikeout
 - Number formats (currency, percentage, custom)
 - Formulas with calculated values (optional recalculation on load via `RecalculateOnLoad`)
+- Set or clear a formula's cached value per cell, sheet or workbook
 - Used range of a sheet (`LastRow`, `LastColumn`, `UsedRange`)
 - Column widths
 - Merged cells

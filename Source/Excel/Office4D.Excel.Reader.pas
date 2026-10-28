@@ -4,6 +4,7 @@ interface
 
 uses
   System.Generics.Collections,
+  System.RegularExpressions,
   Office4D.Excel,
   Office4D.Package,
   Office4D.Excel.Model;
@@ -44,6 +45,8 @@ type
     procedure ParseSharedStrings(const Xml: string);
     procedure ParseStyles(const Xml: string);
     procedure ParseSheet(const Sheet: TExcelSheet; const Xml: string);
+    Function HoldsCellContent(const Match: TMatch): Boolean;
+    Function MatchGroup(const Match: TMatch; const Index: Integer): string;
     procedure ParseComments(const Sheet: TExcelSheet; const Xml: string);
     function AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
 
@@ -63,7 +66,6 @@ uses
   System.SysUtils,
   System.Math,
   System.StrUtils,
-  System.RegularExpressions,
   Office4D.Metadata,
   Office4D.Relationships,
   Office4D.Types,
@@ -740,21 +742,22 @@ begin
     // The <f> element may have attributes (e.g. t="shared" si="0"), so we use
     // <f[^>]*> for the opening tag. Self-closing <f.../> cells have an empty formula
     // text; the si index is extracted separately for shared-formula dependent-cell resolution.
+    // The <v> element is optional: a formula may come without a cached value.
     // Group layout: 1=address, 2=style, 3=cell-type, 4=formula-text, 5=si-index, 6=value.
     const CellMatches = TRegEx.Matches(Xml,
       '<c\s+r="([A-Z]+\d+)"(?:\s+s="(\d+)")?(?:\s+t="([^"]*)")?[^>]*(?<!/)>' +
       '(?:<f(?:\s+[^>]*)?>([^<]*)</f>|<f(?:\s+[^>]*)?\bsi="(\d+)"[^/]*/>)?' +
-      '(?:(?!</c>).)*<v>([^<]*)</v>.*?</c>',[roIgnoreCase, roSingleLine]);
+      '(?:(?:(?!</c>).)*?<v>([^<]*)</v>)?.*?</c>',[roIgnoreCase, roSingleLine]);
     for var Match in CellMatches do
     begin
-      if Match.Groups.Count > 6 then
+      if HoldsCellContent(Match) then
       begin
         const Address = Match.Groups[1].Value;
-        const StyleIdx = StrToIntDef(Match.Groups[2].Value, 0);
-        const CellType = Match.Groups[3].Value;
-        var   Formula: string := TXml.Unescape(Match.Groups[4].Value);
-        const SiIndex  = Match.Groups[5].Value;
-        const Value    = Match.Groups[6].Value;
+        const StyleIdx = StrToIntDef(MatchGroup(Match, 2), 0);
+        const CellType = MatchGroup(Match, 3);
+        var   Formula: string := TXml.Unescape(MatchGroup(Match, 4));
+        const SiIndex  = MatchGroup(Match, 5);
+        const Value    = MatchGroup(Match, 6);
 
         // Dependent shared-formula cells have an empty formula text but carry a si index.
         // Resolve and adjust the formula string from the shared formula map.
@@ -923,6 +926,23 @@ begin
   for var MergeMatch in MergeMatches do
     if MergeMatch.Groups.Count > 1 then
       Sheet.MergeCells(MergeMatch.Groups[1].Value);
+end;
+
+Function TExcelWorkbookReader.HoldsCellContent(const Match: TMatch): Boolean;
+begin
+  // A cell match holds content when it carries <v>, or a formula without a
+  // cached value. A missing <v> shows as a lower group count.
+  Result := (Match.Groups.Count > 6) or (MatchGroup(Match, 4) <> '');
+end;
+
+Function TExcelWorkbookReader.MatchGroup(const Match: TMatch; const Index: Integer): string;
+begin
+  // TMatch lists only the groups up to the last one that took part in the
+  // match, so a trailing optional group may be absent altogether.
+  if Index < Match.Groups.Count then
+    Result := Match.Groups[Index].Value
+  else
+    Result := '';
 end;
 
 constructor TExcelWorkbookReader.Create(const Content: TExcelWorkbookContent);
