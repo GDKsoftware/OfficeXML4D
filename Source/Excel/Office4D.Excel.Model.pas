@@ -52,7 +52,7 @@ type
     procedure SetAsDateTime(const Value: TDateTime);
     function GetFormula: string;
     function GetHasFormula: Boolean;
-    Procedure SetFormula(const Formula: string; const CalculatedValue: Double); overload;
+    Procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
     Procedure SetFormula(const Formula: string); overload;
     Function GetHasCachedValue: Boolean;
     Procedure SetCachedValue(const Value: Double);
@@ -560,10 +560,10 @@ begin
   Result := FFormula <> '';
 end;
 
-procedure TExcelCell.SetFormula(const Formula: string; const CalculatedValue: Double);
+Procedure TExcelCell.SetFormula(const Formula: string; const CachedValue: Double);
 begin
   FFormula := Formula;
-  StoreCachedValue(CalculatedValue);
+  StoreCachedValue(CachedValue);
 end;
 
 Procedure TExcelCell.SetFormula(const Formula: string);

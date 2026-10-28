@@ -199,13 +199,13 @@ begin
   Sheet.Cell['B3'].AsFloat := 29.95;
   Sheet.Cell['B3'].NumberFormat := '"$"#,##0.00';
 
-  // Formula with calculated value
+  // Formula with cached value
   Sheet.Cell['B4'].SetFormula('SUM(B2:B3)', 1028.95);
   Sheet.Cell['B4'].Bold := True;
   Sheet.Cell['B4'].NumberFormat := '"$"#,##0.00';
 
   // The library does not evaluate formulas. By default a workbook with formulas
-  // asks Excel to recalculate on load, so the calculated values above are never
+  // asks Excel to recalculate on load, so the cached values above are never
   // shown stale - but Excel then prompts to save on close, even if nothing was
   // edited. Disable this to keep the cached values exactly as written:
   Workbook.RecalculateOnLoad := False;
@@ -389,7 +389,7 @@ Examples/      - Demo application
 - Cell styling: background color, border style, border color
 - Text formatting: bold, italic, underline, strikeout
 - Number formats (currency, percentage, custom)
-- Formulas with calculated values (optional recalculation on load via `RecalculateOnLoad`)
+- Formulas with cached values (optional recalculation on load via `RecalculateOnLoad`)
 - Set or clear a formula's cached value per cell, sheet or workbook
 - Used range of a sheet (`LastRow`, `LastColumn`, `UsedRange`)
 - Column widths

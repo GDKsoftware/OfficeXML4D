@@ -38,7 +38,7 @@ type
     procedure SetAsDateTime(const Value: TDateTime);
     function GetFormula: string;
     function GetHasFormula: Boolean;
-    Procedure SetFormula(const Formula: string; const CalculatedValue: Double); overload;
+    Procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
     /// Sets a formula without a cached value, so the cell is saved without one.
     Procedure SetFormula(const Formula: string); overload;
     Function GetHasCachedValue: Boolean;
