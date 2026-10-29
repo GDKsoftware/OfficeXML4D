@@ -29,10 +29,10 @@ type
     procedure LoadFromStream_SharedFormulaAlongsideSelfClosingCells_ResolvesDependentFormula;
 
     [Test]
-    Procedure LoadFromStream_FormulaWithoutCachedValue_LoadsFormula;
+    procedure LoadFromStream_FormulaWithoutCachedValue_LoadsFormula;
 
     [Test]
-    Procedure LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
+    procedure LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
   end;
 
 implementation
@@ -92,7 +92,7 @@ begin
   Assert.AreEqual('B2+1', Sheet.Cell['A3'].Formula, 'Dependent cell gets the shared formula shifted one row down');
 end;
 
-Procedure TExcelSharedFormulaParsingTests.LoadFromStream_FormulaWithoutCachedValue_LoadsFormula;
+procedure TExcelSharedFormulaParsingTests.LoadFromStream_FormulaWithoutCachedValue_LoadsFormula;
 begin
   const SheetData =
     '<row r="1"><c r="A1"><f>1+1</f></c><c r="B1"><v>5</v></c></row>';
@@ -105,7 +105,7 @@ begin
   Assert.AreEqual(Double(5), Sheet.Cell['B1'].AsFloat);
 end;
 
-Procedure TExcelSharedFormulaParsingTests.LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
+procedure TExcelSharedFormulaParsingTests.LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
 begin
   const SheetData =
     '<row r="1"><c r="A1" s="1"></c><c r="B1" t="inlineStr"><is><t>x</t></is></c>' +

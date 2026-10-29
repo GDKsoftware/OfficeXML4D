@@ -45,8 +45,8 @@ type
     procedure ParseSharedStrings(const Xml: string);
     procedure ParseStyles(const Xml: string);
     procedure ParseSheet(const Sheet: TExcelSheet; const Xml: string);
-    Function HoldsCellContent(const Match: TMatch): Boolean;
-    Function MatchGroup(const Match: TMatch; const Index: Integer): string;
+    function HoldsCellContent(const Match: TMatch): Boolean;
+    function MatchGroup(const Match: TMatch; const Index: Integer): string;
     procedure ParseComments(const Sheet: TExcelSheet; const Xml: string);
     function AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
 
@@ -928,14 +928,14 @@ begin
       Sheet.MergeCells(MergeMatch.Groups[1].Value);
 end;
 
-Function TExcelWorkbookReader.HoldsCellContent(const Match: TMatch): Boolean;
+function TExcelWorkbookReader.HoldsCellContent(const Match: TMatch): Boolean;
 begin
   // A cell match holds content when it carries <v>, or a formula without a
   // cached value. A missing <v> shows as a lower group count.
   Result := (Match.Groups.Count > 6) or (MatchGroup(Match, 4) <> '');
 end;
 
-Function TExcelWorkbookReader.MatchGroup(const Match: TMatch; const Index: Integer): string;
+function TExcelWorkbookReader.MatchGroup(const Match: TMatch; const Index: Integer): string;
 begin
   // TMatch lists only the groups up to the last one that took part in the
   // match, so a trailing optional group may be absent altogether.

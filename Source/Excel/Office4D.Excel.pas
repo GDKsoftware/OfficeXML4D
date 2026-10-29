@@ -38,17 +38,17 @@ type
     procedure SetAsDateTime(const Value: TDateTime);
     function GetFormula: string;
     function GetHasFormula: Boolean;
-    Procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
+    procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
     /// Sets a formula without a cached value, so the cell is saved without one.
-    Procedure SetFormula(const Formula: string); overload;
-    Function GetHasCachedValue: Boolean;
+    procedure SetFormula(const Formula: string); overload;
+    function GetHasCachedValue: Boolean;
     /// Replaces the cached value of a formula cell: the result a spreadsheet
     /// application shows until it recalculates. Raises EExcelWorkbookException
     /// on a cell without a formula.
-    Procedure SetCachedValue(const Value: Double);
+    procedure SetCachedValue(const Value: Double);
     /// Drops the cached value of a formula cell, so the formula is saved without
     /// one. Raises EExcelWorkbookException on a cell without a formula.
-    Procedure ClearCachedValue;
+    procedure ClearCachedValue;
     function GetBold: Boolean;
     procedure SetBold(const Value: Boolean);
     function GetItalic: Boolean;
@@ -137,7 +137,7 @@ type
     procedure DeleteRow(const Row: Integer);
 
     /// Drops the cached value of every formula cell in the sheet.
-    Procedure ClearCachedValues;
+    procedure ClearCachedValues;
 
     function GetCells: TDictionary<string, IExcelCell>;
 
@@ -179,7 +179,7 @@ type
     procedure RemoveSheetByName(const Name: string);
 
     /// Drops the cached value of every formula cell on every sheet.
-    Procedure ClearCachedValues;
+    procedure ClearCachedValues;
 
     property SheetCount: Integer read GetSheetCount;
     property Sheets[Index: Integer]: IExcelSheet read GetSheet;

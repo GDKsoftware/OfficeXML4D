@@ -16,59 +16,59 @@ type
     FWorkbook: IExcelWorkbook;
     FTempFile: string;
 
-    Function ReadSheet1Xml: string;
-    Function SaveAndLoad: IExcelWorkbook;
+    function ReadSheet1Xml: string;
+    function SaveAndLoad: IExcelWorkbook;
   public
     [Setup]
-    Procedure Setup;
+    procedure Setup;
 
     [TearDown]
-    Procedure TearDown;
+    procedure TearDown;
 
     [Test]
-    Procedure SetFormula_HasCachedValue_IsTrue;
+    procedure SetFormula_HasCachedValue_IsTrue;
 
     [Test]
-    Procedure SetFormulaWithoutValue_HasCachedValue_IsFalse;
+    procedure SetFormulaWithoutValue_HasCachedValue_IsFalse;
 
     [Test]
-    Procedure ValueCell_HasCachedValue_IsFalse;
+    procedure ValueCell_HasCachedValue_IsFalse;
 
     [Test]
-    Procedure SetCachedValue_FormulaCell_ReplacesValueAndKeepsFormula;
+    procedure SetCachedValue_FormulaCell_ReplacesValueAndKeepsFormula;
 
     [Test]
-    Procedure SetCachedValue_CellWithoutFormula_Raises;
+    procedure SetCachedValue_CellWithoutFormula_Raises;
 
     [Test]
-    Procedure ClearCachedValue_FormulaCell_KeepsFormula;
+    procedure ClearCachedValue_FormulaCell_KeepsFormula;
 
     [Test]
-    Procedure ClearCachedValue_CellWithoutFormula_Raises;
+    procedure ClearCachedValue_CellWithoutFormula_Raises;
 
     [Test]
-    Procedure SetCachedValue_AfterClear_RestoresCachedValue;
+    procedure SetCachedValue_AfterClear_RestoresCachedValue;
 
     [Test]
-    Procedure AssigningValue_FormulaCell_HasCachedValueIsFalse;
+    procedure AssigningValue_FormulaCell_HasCachedValueIsFalse;
 
     [Test]
-    Procedure SheetClearCachedValues_LeavesValueCellsIntact;
+    procedure SheetClearCachedValues_LeavesValueCellsIntact;
 
     [Test]
-    Procedure WorkbookClearCachedValues_ClearsEverySheet;
+    procedure WorkbookClearCachedValues_ClearsEverySheet;
 
     [Test]
-    Procedure SaveToFile_ClearedCachedValue_OmitsValueElement;
+    procedure SaveToFile_ClearedCachedValue_OmitsValueElement;
 
     [Test]
-    Procedure RoundTrip_ClearedCachedValue_KeepsFormulaWithoutValue;
+    procedure RoundTrip_ClearedCachedValue_KeepsFormulaWithoutValue;
 
     [Test]
-    Procedure RoundTrip_ClearedCachedValue_KeepsStyle;
+    procedure RoundTrip_ClearedCachedValue_KeepsStyle;
 
     [Test]
-    Procedure RoundTrip_SetCachedValue_IsPreserved;
+    procedure RoundTrip_SetCachedValue_IsPreserved;
   end;
 
 implementation
@@ -77,20 +77,20 @@ uses
   Office4D.Errors,
   Office4D.Package;
 
-Procedure TExcelCachedValueTests.Setup;
+procedure TExcelCachedValueTests.Setup;
 begin
   FWorkbook := TExcelWorkbookFactory.Create;
   FTempFile := TPath.Combine(TPath.GetTempPath, 'cachedvalue_test_' + TGUID.NewGuid.ToString + '.xlsx');
 end;
 
-Procedure TExcelCachedValueTests.TearDown;
+procedure TExcelCachedValueTests.TearDown;
 begin
   FWorkbook := nil;
   if TFile.Exists(FTempFile) then
     TFile.Delete(FTempFile);
 end;
 
-Function TExcelCachedValueTests.ReadSheet1Xml: string;
+function TExcelCachedValueTests.ReadSheet1Xml: string;
 begin
   FWorkbook.SaveToFile(FTempFile);
   var Package := TOXMLPackage.Create;
@@ -102,14 +102,14 @@ begin
   end;
 end;
 
-Function TExcelCachedValueTests.SaveAndLoad: IExcelWorkbook;
+function TExcelCachedValueTests.SaveAndLoad: IExcelWorkbook;
 begin
   FWorkbook.SaveToFile(FTempFile);
   Result := TExcelWorkbookFactory.Create;
   Result.LoadFromFile(FTempFile);
 end;
 
-Procedure TExcelCachedValueTests.SetFormula_HasCachedValue_IsTrue;
+procedure TExcelCachedValueTests.SetFormula_HasCachedValue_IsTrue;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -117,7 +117,7 @@ begin
   Assert.IsTrue(Sheet.Cell['B1'].HasCachedValue);
 end;
 
-Procedure TExcelCachedValueTests.SetFormulaWithoutValue_HasCachedValue_IsFalse;
+procedure TExcelCachedValueTests.SetFormulaWithoutValue_HasCachedValue_IsFalse;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].AsString := 'Replaced';
@@ -130,7 +130,7 @@ begin
   Assert.AreEqual('', Sheet.Cell['B1'].AsString, 'The previous value must not linger');
 end;
 
-Procedure TExcelCachedValueTests.ValueCell_HasCachedValue_IsFalse;
+procedure TExcelCachedValueTests.ValueCell_HasCachedValue_IsFalse;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['A1'].AsFloat := 10;
@@ -138,7 +138,7 @@ begin
   Assert.IsFalse(Sheet.Cell['A1'].HasCachedValue, 'Only a formula cell carries a cached value');
 end;
 
-Procedure TExcelCachedValueTests.SetCachedValue_FormulaCell_ReplacesValueAndKeepsFormula;
+procedure TExcelCachedValueTests.SetCachedValue_FormulaCell_ReplacesValueAndKeepsFormula;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -150,13 +150,13 @@ begin
   Assert.IsTrue(Sheet.Cell['B1'].HasCachedValue);
 end;
 
-Procedure TExcelCachedValueTests.SetCachedValue_CellWithoutFormula_Raises;
+procedure TExcelCachedValueTests.SetCachedValue_CellWithoutFormula_Raises;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['A1'].AsFloat := 10;
 
   Assert.WillRaise(
-    Procedure
+    procedure
     begin
       Sheet.Cell['A1'].SetCachedValue(42);
     end,
@@ -165,7 +165,7 @@ begin
   Assert.AreEqual(Double(10), Sheet.Cell['A1'].AsFloat, 'The refused call must leave the value alone');
 end;
 
-Procedure TExcelCachedValueTests.ClearCachedValue_FormulaCell_KeepsFormula;
+procedure TExcelCachedValueTests.ClearCachedValue_FormulaCell_KeepsFormula;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -178,13 +178,13 @@ begin
   Assert.AreEqual(Double(0), Sheet.Cell['B1'].AsFloat);
 end;
 
-Procedure TExcelCachedValueTests.ClearCachedValue_CellWithoutFormula_Raises;
+procedure TExcelCachedValueTests.ClearCachedValue_CellWithoutFormula_Raises;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['A1'].AsFloat := 10;
 
   Assert.WillRaise(
-    Procedure
+    procedure
     begin
       Sheet.Cell['A1'].ClearCachedValue;
     end,
@@ -193,7 +193,7 @@ begin
   Assert.AreEqual(Double(10), Sheet.Cell['A1'].AsFloat, 'The refused call must leave the value alone');
 end;
 
-Procedure TExcelCachedValueTests.SetCachedValue_AfterClear_RestoresCachedValue;
+procedure TExcelCachedValueTests.SetCachedValue_AfterClear_RestoresCachedValue;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -205,7 +205,7 @@ begin
   Assert.AreEqual(Double(30), Sheet.Cell['B1'].AsFloat);
 end;
 
-Procedure TExcelCachedValueTests.AssigningValue_FormulaCell_HasCachedValueIsFalse;
+procedure TExcelCachedValueTests.AssigningValue_FormulaCell_HasCachedValueIsFalse;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -216,7 +216,7 @@ begin
   Assert.IsFalse(Sheet.Cell['B1'].HasCachedValue, 'A value replaces the formula and its cached value');
 end;
 
-Procedure TExcelCachedValueTests.SheetClearCachedValues_LeavesValueCellsIntact;
+procedure TExcelCachedValueTests.SheetClearCachedValues_LeavesValueCellsIntact;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['A1'].AsFloat := 10;
@@ -232,7 +232,7 @@ begin
   Assert.AreEqual('Label', Sheet.Cell['A2'].AsString);
 end;
 
-Procedure TExcelCachedValueTests.WorkbookClearCachedValues_ClearsEverySheet;
+procedure TExcelCachedValueTests.WorkbookClearCachedValues_ClearsEverySheet;
 begin
   const First = FWorkbook.AddSheet('First');
   const Second = FWorkbook.AddSheet('Second');
@@ -245,7 +245,7 @@ begin
   Assert.IsFalse(Second.Cell['A1'].HasCachedValue, 'Second!A1');
 end;
 
-Procedure TExcelCachedValueTests.SaveToFile_ClearedCachedValue_OmitsValueElement;
+procedure TExcelCachedValueTests.SaveToFile_ClearedCachedValue_OmitsValueElement;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -257,7 +257,7 @@ begin
   Assert.IsTrue(HasBareFormula, 'A formula without a cached value is written without <v>');
 end;
 
-Procedure TExcelCachedValueTests.RoundTrip_ClearedCachedValue_KeepsFormulaWithoutValue;
+procedure TExcelCachedValueTests.RoundTrip_ClearedCachedValue_KeepsFormulaWithoutValue;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -273,7 +273,7 @@ begin
   Assert.AreEqual(Double(5), LoadedSheet.Cell['C1'].AsFloat, 'The next cell keeps its own value');
 end;
 
-Procedure TExcelCachedValueTests.RoundTrip_ClearedCachedValue_KeepsStyle;
+procedure TExcelCachedValueTests.RoundTrip_ClearedCachedValue_KeepsStyle;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
@@ -285,7 +285,7 @@ begin
   Assert.IsTrue(Loaded.Sheets[0].Cell['B1'].Bold);
 end;
 
-Procedure TExcelCachedValueTests.RoundTrip_SetCachedValue_IsPreserved;
+procedure TExcelCachedValueTests.RoundTrip_SetCachedValue_IsPreserved;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['B1'].SetFormula('A1*2', 20);

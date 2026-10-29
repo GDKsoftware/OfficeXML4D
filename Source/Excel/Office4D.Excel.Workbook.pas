@@ -44,7 +44,7 @@ type
     procedure RemoveSheet(Index: Integer);
     procedure RemoveSheetByName(const Name: string);
 
-    Procedure ClearCachedValues;
+    procedure ClearCachedValues;
   end;
 
 implementation
@@ -190,7 +190,7 @@ begin
   FContent.RemoveSheetByName(Name);
 end;
 
-Procedure TExcelWorkbook.ClearCachedValues;
+procedure TExcelWorkbook.ClearCachedValues;
 begin
   for var Sheet in FContent.Sheets do
     Sheet.ClearCachedValues;
