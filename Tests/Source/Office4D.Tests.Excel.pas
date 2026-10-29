@@ -182,7 +182,7 @@ type
     procedure Cell_WithFormula_ReturnsFormulaString;
 
     [Test]
-    procedure Cell_WithFormula_ReturnsCalculatedValue;
+    procedure Cell_WithFormula_ReturnsCachedValue;
 
     [Test]
     procedure Cell_WithFormula_CrossSheetReference;
@@ -194,7 +194,7 @@ type
     procedure SetFormula_CreatesFormulaCell;
 
     [Test]
-    procedure SetFormula_WithValue_StoresCalculatedValue;
+    procedure SetFormula_WithValue_StoresCachedValue;
 
     [Test]
     procedure SetFormula_RoundTrip_PreservesFormula;
@@ -529,7 +529,7 @@ begin
   Assert.AreEqual('A1+A2', Sheet.Cell['A3'].Formula);
 end;
 
-procedure TExcelFormulaTests.Cell_WithFormula_ReturnsCalculatedValue;
+procedure TExcelFormulaTests.Cell_WithFormula_ReturnsCachedValue;
 begin
   FWorkbook.LoadFromFile(GetExcelSamplePath);
 
@@ -587,7 +587,7 @@ begin
   Assert.AreEqual('A1+B1', Sheet.Cell['C1'].Formula);
 end;
 
-procedure TExcelFormulaTests.SetFormula_WithValue_StoresCalculatedValue;
+procedure TExcelFormulaTests.SetFormula_WithValue_StoresCachedValue;
 begin
   var Sheet := FWorkbook.AddSheet('Sheet1');
   Sheet.Cell['C1'].SetFormula('SUM(A1:B1)', 100);

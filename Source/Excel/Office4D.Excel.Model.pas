@@ -37,6 +37,10 @@ type
     FWrapText: Boolean;
     FFontColor: Cardinal;
     FStrikeout: Boolean;
+    FHasCachedValue: Boolean;
+
+    procedure StoreCachedValue(const Value: Double);
+    procedure DropCachedValue;
   public
     function GetAsString: string;
     procedure SetAsString(const Value: string);
@@ -48,7 +52,11 @@ type
     procedure SetAsDateTime(const Value: TDateTime);
     function GetFormula: string;
     function GetHasFormula: Boolean;
-    procedure SetFormula(const Formula: string; const CalculatedValue: Double);
+    procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
+    procedure SetFormula(const Formula: string); overload;
+    function GetHasCachedValue: Boolean;
+    procedure SetCachedValue(const Value: Double);
+    procedure ClearCachedValue;
     function GetBold: Boolean;
     procedure SetBold(const Value: Boolean);
     function GetItalic: Boolean;
@@ -152,6 +160,7 @@ type
     function HasNotes: Boolean;
 
     function HasFormulas: Boolean;
+    procedure ClearCachedValues;
 
     procedure ClearColumn(const Column: string);
     procedure ClearRow(const Row: Integer);
@@ -465,6 +474,22 @@ end;
 
 { TExcelCell }
 
+procedure TExcelCell.StoreCachedValue(const Value: Double);
+begin
+  FFloatValue := Value;
+  FStringValue := '';
+  FCellType := TCellType.Number;
+  FHasCachedValue := True;
+end;
+
+procedure TExcelCell.DropCachedValue;
+begin
+  FFloatValue := 0.0;
+  FStringValue := '';
+  FCellType := TCellType.Empty;
+  FHasCachedValue := False;
+end;
+
 function TExcelCell.GetAsString: string;
 begin
   Result := FStringValue;
@@ -535,11 +560,37 @@ begin
   Result := FFormula <> '';
 end;
 
-procedure TExcelCell.SetFormula(const Formula: string; const CalculatedValue: Double);
+procedure TExcelCell.SetFormula(const Formula: string; const CachedValue: Double);
 begin
   FFormula := Formula;
-  FFloatValue := CalculatedValue;
-  FCellType := TCellType.Number;
+  StoreCachedValue(CachedValue);
+end;
+
+procedure TExcelCell.SetFormula(const Formula: string);
+begin
+  FFormula := Formula;
+  DropCachedValue;
+end;
+
+function TExcelCell.GetHasCachedValue: Boolean;
+begin
+  Result := GetHasFormula and FHasCachedValue;
+end;
+
+procedure TExcelCell.SetCachedValue(const Value: Double);
+begin
+  if GetHasFormula then
+    StoreCachedValue(Value)
+  else
+    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
+end;
+
+procedure TExcelCell.ClearCachedValue;
+begin
+  if GetHasFormula then
+    DropCachedValue
+  else
+    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
 end;
 
 function TExcelCell.GetBold: Boolean;
@@ -944,6 +995,13 @@ begin
   Result := False;
 end;
 
+procedure TExcelSheet.ClearCachedValues;
+begin
+  for var Cell in FCells.Values do
+    if Cell.HasFormula then
+      Cell.ClearCachedValue;
+end;
+
 class function TExcelSheet.ColumnLetterToNumber(const Column: string): Integer;
 begin
   Result := 0;
@@ -1014,12 +1072,16 @@ end;
 
 procedure TExcelSheet.SetCellFormula(const Address, Formula, Value: string);
 begin
-  // Assign the cached value first: setting a value clears the formula, so the
-  // formula has to be applied afterwards to survive.
+  // Value is the text of <v>, empty when the formula carries no cached value.
+  // AsString returns that text as read.
   var Cell := GetCell(Address) as TExcelCell;
-  Cell.SetAsFloat(StrToFloatDef(Value, 0, TFormatSettings.Invariant));
-  Cell.FStringValue := Value;
-  Cell.FFormula := Formula;
+  if Value = '' then
+    Cell.SetFormula(Formula)
+  else
+  begin
+    Cell.SetFormula(Formula, StrToFloatDef(Value, 0, TFormatSettings.Invariant));
+    Cell.FStringValue := Value;
+  end;
 end;
 
 procedure TExcelSheet.ClearColumn(const Column: string);

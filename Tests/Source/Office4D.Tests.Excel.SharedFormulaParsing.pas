@@ -27,6 +27,12 @@ type
 
     [Test]
     procedure LoadFromStream_SharedFormulaAlongsideSelfClosingCells_ResolvesDependentFormula;
+
+    [Test]
+    procedure LoadFromStream_FormulaWithoutCachedValue_LoadsFormula;
+
+    [Test]
+    procedure LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
   end;
 
 implementation
@@ -84,6 +90,33 @@ begin
 
   Assert.AreEqual('B1+1', Sheet.Cell['A2'].Formula, 'Master cell keeps its own formula');
   Assert.AreEqual('B2+1', Sheet.Cell['A3'].Formula, 'Dependent cell gets the shared formula shifted one row down');
+end;
+
+procedure TExcelSharedFormulaParsingTests.LoadFromStream_FormulaWithoutCachedValue_LoadsFormula;
+begin
+  const SheetData =
+    '<row r="1"><c r="A1"><f>1+1</f></c><c r="B1"><v>5</v></c></row>';
+
+  const Workbook = LoadWorkbook(SheetData);
+  const Sheet = Workbook.Sheets[0];
+
+  Assert.AreEqual('1+1', Sheet.Cell['A1'].Formula);
+  Assert.IsFalse(Sheet.Cell['A1'].HasCachedValue, 'A1 must not take the <v> of the next cell');
+  Assert.AreEqual(Double(5), Sheet.Cell['B1'].AsFloat);
+end;
+
+procedure TExcelSharedFormulaParsingTests.LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
+begin
+  const SheetData =
+    '<row r="1"><c r="A1" s="1"></c><c r="B1" t="inlineStr"><is><t>x</t></is></c>' +
+    '<c r="C1"><v>5</v></c></row>';
+
+  const Workbook = LoadWorkbook(SheetData);
+  const Sheet = Workbook.Sheets[0];
+
+  Assert.IsFalse(Sheet.Cells.ContainsKey('A1'), 'An empty cell holds nothing to read');
+  Assert.IsFalse(Sheet.Cells.ContainsKey('B1'), 'An inline string must not be read as a number cell');
+  Assert.AreEqual(Double(5), Sheet.Cell['C1'].AsFloat);
 end;
 
 function TExcelSharedFormulaParsingTests.LoadWorkbook(const SheetDataXml: string): IExcelWorkbook;

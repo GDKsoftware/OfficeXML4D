@@ -38,7 +38,17 @@ type
     procedure SetAsDateTime(const Value: TDateTime);
     function GetFormula: string;
     function GetHasFormula: Boolean;
-    procedure SetFormula(const Formula: string; const CalculatedValue: Double);
+    procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
+    /// Sets a formula without a cached value, so the cell is saved without one.
+    procedure SetFormula(const Formula: string); overload;
+    function GetHasCachedValue: Boolean;
+    /// Replaces the cached value of a formula cell: the result a spreadsheet
+    /// application shows until it recalculates. Raises EExcelWorkbookException
+    /// on a cell without a formula.
+    procedure SetCachedValue(const Value: Double);
+    /// Drops the cached value of a formula cell, so the formula is saved without
+    /// one. Raises EExcelWorkbookException on a cell without a formula.
+    procedure ClearCachedValue;
     function GetBold: Boolean;
     procedure SetBold(const Value: Boolean);
     function GetItalic: Boolean;
@@ -76,6 +86,9 @@ type
     property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
     property Formula: string read GetFormula;
     property HasFormula: Boolean read GetHasFormula;
+    /// True for a formula cell that carries a cached value; AsFloat then returns
+    /// it. False for a cell without a formula.
+    property HasCachedValue: Boolean read GetHasCachedValue;
     property Bold: Boolean read GetBold write SetBold;
     property Italic: Boolean read GetItalic write SetItalic;
     property Underline: Boolean read GetUnderline write SetUnderline;
@@ -123,6 +136,9 @@ type
     procedure DeleteColumn(const Column: string);
     procedure DeleteRow(const Row: Integer);
 
+    /// Drops the cached value of every formula cell in the sheet.
+    procedure ClearCachedValues;
+
     function GetCells: TDictionary<string, IExcelCell>;
 
     function GetLastRow: Integer;
@@ -161,6 +177,9 @@ type
     function AddSheet(const Name: string): IExcelSheet;
     procedure RemoveSheet(Index: Integer);
     procedure RemoveSheetByName(const Name: string);
+
+    /// Drops the cached value of every formula cell on every sheet.
+    procedure ClearCachedValues;
 
     property SheetCount: Integer read GetSheetCount;
     property Sheets[Index: Integer]: IExcelSheet read GetSheet;

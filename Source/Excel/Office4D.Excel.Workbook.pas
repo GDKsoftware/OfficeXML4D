@@ -43,6 +43,8 @@ type
 
     procedure RemoveSheet(Index: Integer);
     procedure RemoveSheetByName(const Name: string);
+
+    procedure ClearCachedValues;
   end;
 
 implementation
@@ -186,6 +188,12 @@ end;
 procedure TExcelWorkbook.RemoveSheetByName(const Name: string);
 begin
   FContent.RemoveSheetByName(Name);
+end;
+
+procedure TExcelWorkbook.ClearCachedValues;
+begin
+  for var Sheet in FContent.Sheets do
+    Sheet.ClearCachedValues;
 end;
 
 end.

@@ -421,7 +421,7 @@ begin
   Sheet.Cell['A4'].AsString := '- Cell data types (string, number, boolean, date)';
   Sheet.Cell['A5'].AsString := '- Cell formatting (bold, background color)';
   Sheet.Cell['A6'].AsString := '- Number formats (currency, percentage)';
-  Sheet.Cell['A7'].AsString := '- Formulas with calculated values';
+  Sheet.Cell['A7'].AsString := '- Formulas with cached values';
   Sheet.Cell['A8'].AsString := '- Multiple worksheets';
   Sheet.Cell['A9'].AsString := '- Column widths';
   Sheet.Cell['A10'].AsString := '- Merged cells';
