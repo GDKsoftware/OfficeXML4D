@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{59BA4AD7-1679-464C-8F39-54A7A857B762}</ProjectGuid>
         <MainSource>Office4D.Tests.dpr</MainSource>
@@ -183,6 +183,7 @@
         <DCCReference Include="Office4D.Tests.Excel.FreezePanes.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.UsedRange.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.CachedValues.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.InlineStrings.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.Notes.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.RemoveSheet.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.ClearColumnRow.pas"/>
