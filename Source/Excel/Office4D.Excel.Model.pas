@@ -11,8 +11,21 @@ uses
 type
   {$SCOPEDENUMS ON}
   TCellType = (Empty, StringValue, Number, Boolean, DateTime);
+
+  /// What a formula's cached value is: the t attribute of its cell, where a
+  /// number is the default and carries none.
+  TCachedValueType = (Number, Text, Boolean, Error);
   {$SCOPEDENUMS OFF}
 
+  TCachedValueTypeHelper = record helper for TCachedValueType
+    class function FromCellTypeAttribute(const Attribute: string): TCachedValueType; static;
+    function CellTypeAttribute: string;
+  end;
+
+const
+  UnsupportedCachedValueTypeMessage = 'Unsupported cached value type: %d';
+
+type
   TExcelWorkbookContent = class;
 
   TExcelCell = class(TInterfacedObject, IExcelCell)
@@ -38,9 +51,11 @@ type
     FFontColor: Cardinal;
     FStrikeout: Boolean;
     FHasCachedValue: Boolean;
+    FCachedValueType: TCachedValueType;
 
     procedure StoreCachedValue(const Value: Double);
     procedure DropCachedValue;
+    procedure RestoreCachedValue(const Value: string; const ValueType: TCachedValueType);
   public
     function GetAsString: string;
     procedure SetAsString(const Value: string);
@@ -92,6 +107,7 @@ type
     function HasStyle: Boolean;
 
     property CellType: TCellType read FCellType;
+    property CachedValueType: TCachedValueType read FCachedValueType;
     property IsString: Boolean read GetIsString;
   end;
 
@@ -169,7 +185,7 @@ type
 
     procedure SetCellValue(const Address, Value: string; IsString: Boolean);
     procedure SetBooleanValue(const Address: string; Value: Boolean);
-    procedure SetCellFormula(const Address, Formula, Value: string);
+    procedure SetCellFormula(const Address, Formula, Value: string; const ValueType: TCachedValueType);
     procedure SetDateTimeValue(const Address: string; const Value: Double);
 
     function GetCells: TDictionary<string, IExcelCell>;
@@ -472,6 +488,38 @@ begin
   end;
 end;
 
+{ TCachedValueTypeHelper }
+
+const
+  CachedTextAttribute = 'str';
+  CachedBooleanAttribute = 'b';
+  CachedErrorAttribute = 'e';
+
+// Anything else, n or no attribute at all, is a number.
+class function TCachedValueTypeHelper.FromCellTypeAttribute(const Attribute: string): TCachedValueType;
+begin
+  if Attribute = CachedTextAttribute then
+    Result := TCachedValueType.Text
+  else if Attribute = CachedBooleanAttribute then
+    Result := TCachedValueType.Boolean
+  else if Attribute = CachedErrorAttribute then
+    Result := TCachedValueType.Error
+  else
+    Result := TCachedValueType.Number;
+end;
+
+function TCachedValueTypeHelper.CellTypeAttribute: string;
+begin
+  case Self of
+    TCachedValueType.Number  : Result := '';
+    TCachedValueType.Text    : Result := CachedTextAttribute;
+    TCachedValueType.Boolean : Result := CachedBooleanAttribute;
+    TCachedValueType.Error   : Result := CachedErrorAttribute;
+  else
+    raise ENotSupportedException.CreateFmt(UnsupportedCachedValueTypeMessage, [Ord(Self)]);
+  end;
+end;
+
 { TExcelCell }
 
 procedure TExcelCell.StoreCachedValue(const Value: Double);
@@ -480,6 +528,7 @@ begin
   FStringValue := '';
   FCellType := TCellType.Number;
   FHasCachedValue := True;
+  FCachedValueType := TCachedValueType.Number;
 end;
 
 procedure TExcelCell.DropCachedValue;
@@ -488,6 +537,17 @@ begin
   FStringValue := '';
   FCellType := TCellType.Empty;
   FHasCachedValue := False;
+  FCachedValueType := TCachedValueType.Number;
+end;
+
+// Value is the text of <v> as read. AsString returns it unchanged, so a text
+// result or an error such as #N/A reads back as written.
+procedure TExcelCell.RestoreCachedValue(const Value: string; const ValueType: TCachedValueType);
+begin
+  StoreCachedValue(StrToFloatDef(Value, 0, TFormatSettings.Invariant));
+  FStringValue := Value;
+  FBooleanValue := (ValueType = TCachedValueType.Boolean) and (Value = '1');
+  FCachedValueType := ValueType;
 end;
 
 function TExcelCell.GetAsString: string;
@@ -1070,18 +1130,13 @@ begin
   Cell.SetAsDateTime(Value);
 end;
 
-procedure TExcelSheet.SetCellFormula(const Address, Formula, Value: string);
+procedure TExcelSheet.SetCellFormula(const Address, Formula, Value: string; const ValueType: TCachedValueType);
 begin
   // Value is the text of <v>, empty when the formula carries no cached value.
-  // AsString returns that text as read.
-  var Cell := GetCell(Address) as TExcelCell;
-  if Value = '' then
-    Cell.SetFormula(Formula)
-  else
-  begin
-    Cell.SetFormula(Formula, StrToFloatDef(Value, 0, TFormatSettings.Invariant));
-    Cell.FStringValue := Value;
-  end;
+  const Cell = GetCell(Address) as TExcelCell;
+  Cell.SetFormula(Formula);
+  if Value <> '' then
+    Cell.RestoreCachedValue(Value, ValueType);
 end;
 
 procedure TExcelSheet.ClearColumn(const Column: string);

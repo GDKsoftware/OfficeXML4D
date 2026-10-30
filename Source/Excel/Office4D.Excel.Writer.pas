@@ -29,6 +29,7 @@ type
     function BuildStyleMap: TDictionary<string, Integer>;
     function GetStyleKey(const Cell: TExcelCell): string;
     function GetCellStyleIndex(const Cell: TExcelCell; const StyleMap: TDictionary<string, Integer>): Integer;
+    function CachedValueText(const Cell: TExcelCell): string;
 
     function GenerateContentTypes: string;
     function GenerateRels: string;
@@ -433,10 +434,16 @@ begin
             if Cell.GetHasFormula then
             begin
               // A formula without a cached value is written without <v>.
+              var TypeAttr := '';
               var CachedValue := '';
               if Cell.GetHasCachedValue then
-                CachedValue := '<v>' + FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant) + '</v>';
-              SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + '><f>' + TXml.Escape(Cell.GetFormula) + '</f>' + CachedValue + '</c>');
+              begin
+                const CellTypeAttribute = Cell.CachedValueType.CellTypeAttribute;
+                if CellTypeAttribute <> '' then
+                  TypeAttr := ' t="' + CellTypeAttribute + '"';
+                CachedValue := '<v>' + CachedValueText(Cell) + '</v>';
+              end;
+              SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + TypeAttr + '><f>' + TXml.Escape(Cell.GetFormula) + '</f>' + CachedValue + '</c>');
             end
             else
             case Cell.CellType of
@@ -707,6 +714,18 @@ begin
     Result := StyleMap[Key]
   else
     Result := 0;
+end;
+
+function TExcelWorkbookWriter.CachedValueText(const Cell: TExcelCell): string;
+begin
+  case Cell.CachedValueType of
+    TCachedValueType.Number  : Result := FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
+    TCachedValueType.Text    : Result := TXml.Escape(Cell.GetAsString);
+    TCachedValueType.Boolean : Result := IfThen(Cell.GetAsBoolean, '1', '0');
+    TCachedValueType.Error   : Result := TXml.Escape(Cell.GetAsString);
+  else
+    raise ENotSupportedException.CreateFmt(UnsupportedCachedValueTypeMessage, [Ord(Cell.CachedValueType)]);
+  end;
 end;
 
 function TExcelWorkbookWriter.GenerateStyles(const StyleMap: TDictionary<string, Integer>): string;
