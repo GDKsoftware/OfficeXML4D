@@ -791,7 +791,8 @@ begin
 
         if Formula <> '' then
         begin
-          Sheet.SetCellFormula(Address, Formula, Value);
+          const ValueType = TCachedValueType.FromCellTypeAttribute(CellType);
+          Sheet.SetCellFormula(Address, Formula, Value, ValueType);
           Cell := Sheet.GetCell(Address) as TExcelCell;
         end
         else if CellType = 's' then

@@ -15,9 +15,11 @@ type
   private
     FWorkbook: IExcelWorkbook;
     FTempFile: string;
+    FSourceFile: string;
 
     function ReadSheet1Xml: string;
     function SaveAndLoad: IExcelWorkbook;
+    procedure LoadSheetData(const SheetDataXml: string);
   public
     [Setup]
     procedure Setup;
@@ -69,18 +71,36 @@ type
 
     [Test]
     procedure RoundTrip_SetCachedValue_IsPreserved;
+
+    [Test]
+    [TestCase('Number', ',42')]
+    [TestCase('Text', 'str,ABC')]
+    [TestCase('Boolean', 'b,1')]
+    [TestCase('Error', 'e,#N/A')]
+    procedure RoundTrip_LoadedCachedValue_KeepsItsType(const CellTypeAttribute, Value: string);
+
+    [Test]
+    procedure LoadFromFile_BooleanCachedValue_ReadsAsBoolean;
+
+    [Test]
+    procedure SetCachedValue_LoadedTextResult_IsWrittenAsNumber;
   end;
 
 implementation
 
 uses
   Office4D.Errors,
-  Office4D.Package;
+  Office4D.Package,
+  Office4D.Tests.PackageBuilder;
+
+const
+  FormulaCellXml = '<c r="B1"%s><f>UPPER(A1)</f><v>%s</v></c>';
 
 procedure TExcelCachedValueTests.Setup;
 begin
   FWorkbook := TExcelWorkbookFactory.Create;
   FTempFile := TPath.Combine(TPath.GetTempPath, 'cachedvalue_test_' + TGUID.NewGuid.ToString + '.xlsx');
+  FSourceFile := TPath.Combine(TPath.GetTempPath, 'cachedvalue_source_' + TGUID.NewGuid.ToString + '.xlsx');
 end;
 
 procedure TExcelCachedValueTests.TearDown;
@@ -88,6 +108,14 @@ begin
   FWorkbook := nil;
   if TFile.Exists(FTempFile) then
     TFile.Delete(FTempFile);
+  if TFile.Exists(FSourceFile) then
+    TFile.Delete(FSourceFile);
+end;
+
+procedure TExcelCachedValueTests.LoadSheetData(const SheetDataXml: string);
+begin
+  TTestPackage.WriteXlsx(FSourceFile, SheetDataXml);
+  FWorkbook.LoadFromFile(FSourceFile);
 end;
 
 function TExcelCachedValueTests.ReadSheet1Xml: string;
@@ -295,6 +323,42 @@ begin
 
   Assert.IsTrue(Loaded.Sheets[0].Cell['B1'].HasCachedValue);
   Assert.AreEqual(Double(42.5), Loaded.Sheets[0].Cell['B1'].AsFloat);
+end;
+
+procedure TExcelCachedValueTests.RoundTrip_LoadedCachedValue_KeepsItsType(const CellTypeAttribute, Value: string);
+begin
+  var TypeAttr := '';
+  if CellTypeAttribute <> '' then
+    TypeAttr := Format(' t="%s"', [CellTypeAttribute]);
+  const CellXml = Format(FormulaCellXml, [TypeAttr, Value]);
+  LoadSheetData(Format('<row r="1">%s</row>', [CellXml]));
+
+  const SheetXml = ReadSheet1Xml;
+
+  const KeepsCell = (Pos(CellXml, SheetXml) > 0);
+  Assert.IsTrue(KeepsCell, Format('Expected %s in the saved sheet', [CellXml]));
+end;
+
+procedure TExcelCachedValueTests.LoadFromFile_BooleanCachedValue_ReadsAsBoolean;
+begin
+  LoadSheetData(Format('<row r="1">%s</row>', [Format(FormulaCellXml, [' t="b"', '1'])]));
+
+  const Cell = FWorkbook.Sheets[0].Cell['B1'];
+
+  Assert.IsTrue(Cell.HasCachedValue);
+  Assert.IsTrue(Cell.AsBoolean);
+end;
+
+procedure TExcelCachedValueTests.SetCachedValue_LoadedTextResult_IsWrittenAsNumber;
+begin
+  LoadSheetData(Format('<row r="1">%s</row>', [Format(FormulaCellXml, [' t="str"', 'ABC'])]));
+
+  FWorkbook.Sheets[0].Cell['B1'].SetCachedValue(5);
+  const SheetXml = ReadSheet1Xml;
+
+  const Expected = Format(FormulaCellXml, ['', '5']);
+  const WritesNumber = (Pos(Expected, SheetXml) > 0);
+  Assert.IsTrue(WritesNumber, Format('Expected %s in the saved sheet', [Expected]));
 end;
 
 initialization

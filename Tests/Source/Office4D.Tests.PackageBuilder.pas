@@ -16,6 +16,9 @@ type
 
     /// Writes a single slide .pptx whose p:spTree holds SlideXml.
     class procedure WritePptx(const FileName, SlideXml: string); static;
+
+    /// Writes a single sheet .xlsx whose sheetData holds SheetDataXml.
+    class procedure WriteXlsx(const FileName, SheetDataXml: string); static;
   end;
 
 implementation
@@ -29,6 +32,7 @@ const
   ContentTypesNs = 'http://schemas.openxmlformats.org/package/2006/content-types';
   RelTypeOfficeDocument = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
   RelTypeSlide = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide';
+  RelTypeWorksheet = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet';
 
   XmlDeclaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 
@@ -96,6 +100,41 @@ const
 
   SlideSuffix = '</p:spTree></p:cSld></p:sld>';
 
+  XlsxContentTypesXml =
+    XmlDeclaration +
+    '<Types xmlns="' + ContentTypesNs + '">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/xl/workbook.xml" ' +
+    'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+    '<Override PartName="/xl/worksheets/sheet1.xml" ' +
+    'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+    '</Types>';
+
+  XlsxRootRelsXml =
+    XmlDeclaration +
+    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationship Id="rId1" Type="' + RelTypeOfficeDocument + '" Target="xl/workbook.xml"/>' +
+    '</Relationships>';
+
+  WorkbookXml =
+    XmlDeclaration +
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>';
+
+  WorkbookRelsXml =
+    XmlDeclaration +
+    '<Relationships xmlns="' + RelationshipsNs + '">' +
+    '<Relationship Id="rId1" Type="' + RelTypeWorksheet + '" Target="worksheets/sheet1.xml"/>' +
+    '</Relationships>';
+
+  SheetPrefix =
+    XmlDeclaration +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+
+  SheetSuffix = '</sheetData></worksheet>';
+
 { TTestPackage }
 
 class procedure TTestPackage.WriteDocx(const FileName, BodyXml: string);
@@ -122,6 +161,22 @@ begin
     Zip.Add(TEncoding.UTF8.GetBytes(PresentationXml), 'ppt/presentation.xml');
     Zip.Add(TEncoding.UTF8.GetBytes(PresentationRelsXml), 'ppt/_rels/presentation.xml.rels');
     Zip.Add(TEncoding.UTF8.GetBytes(SlidePrefix + SlideXml + SlideSuffix), 'ppt/slides/slide1.xml');
+    Zip.Close;
+  finally
+    Zip.Free;
+  end;
+end;
+
+class procedure TTestPackage.WriteXlsx(const FileName, SheetDataXml: string);
+begin
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(FileName, zmWrite);
+    Zip.Add(TEncoding.UTF8.GetBytes(XlsxContentTypesXml), '[Content_Types].xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(XlsxRootRelsXml), '_rels/.rels');
+    Zip.Add(TEncoding.UTF8.GetBytes(WorkbookXml), 'xl/workbook.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes(WorkbookRelsXml), 'xl/_rels/workbook.xml.rels');
+    Zip.Add(TEncoding.UTF8.GetBytes(SheetPrefix + SheetDataXml + SheetSuffix), 'xl/worksheets/sheet1.xml');
     Zip.Close;
   finally
     Zip.Free;
