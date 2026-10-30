@@ -343,12 +343,10 @@ end;
 ## Building
 
 ```batch
-# Build and run tests
-./build.bat Release Win64 Tests
-
-# Build library only
-./build.bat Release Win64
+build.bat
 ```
+
+This builds the test suite for Win32 and Win64 and runs it on both. From a RAD Studio command prompt it uses the Delphi of that prompt, otherwise the newest RAD Studio installed. The packages for each Delphi version are in `packages\`.
 
 ## Project Structure
 
