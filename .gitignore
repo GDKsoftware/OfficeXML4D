@@ -56,8 +56,8 @@ Desktop.ini
 # Personal/local files
 CLAUDE.md
 PLAN.md
-build.bat
 *.bat
+!build.bat
 .claude/
 nul
 Examples/Office4DDemo.dsv
