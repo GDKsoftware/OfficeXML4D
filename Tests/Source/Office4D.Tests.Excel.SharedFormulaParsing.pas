@@ -108,14 +108,12 @@ end;
 procedure TExcelSharedFormulaParsingTests.LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
 begin
   const SheetData =
-    '<row r="1"><c r="A1" s="1"></c><c r="B1" t="inlineStr"><is><t>x</t></is></c>' +
-    '<c r="C1"><v>5</v></c></row>';
+    '<row r="1"><c r="A1" s="1"></c><c r="C1"><v>5</v></c></row>';
 
   const Workbook = LoadWorkbook(SheetData);
   const Sheet = Workbook.Sheets[0];
 
   Assert.IsFalse(Sheet.Cells.ContainsKey('A1'), 'An empty cell holds nothing to read');
-  Assert.IsFalse(Sheet.Cells.ContainsKey('B1'), 'An inline string must not be read as a number cell');
   Assert.AreEqual(Double(5), Sheet.Cell['C1'].AsFloat);
 end;
 

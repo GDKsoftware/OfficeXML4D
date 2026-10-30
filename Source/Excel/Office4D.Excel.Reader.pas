@@ -43,6 +43,8 @@ type
 
     procedure ParseWorkbook(const Xml: string);
     procedure ParseSharedStrings(const Xml: string);
+    function RichTextOf(const RichTextXml: string): string;
+    function InlineStringOf(const CellXml: string): string;
     procedure ParseStyles(const Xml: string);
     procedure ParseSheet(const Sheet: TExcelSheet; const Xml: string);
     function HoldsCellContent(const Match: TMatch): Boolean;
@@ -72,6 +74,8 @@ uses
   Office4D.Xml;
 
 const
+  InlineStringCellType = 'inlineStr';
+
   // Default OOXML indexed colour palette (indices 0-63). Indices 0-7 are redundant
   // copies of 8-15. Only non-zero colours are listed; everything else maps to 0.
   OoxmlIndexedColors: array[0..63] of Cardinal = (
@@ -122,16 +126,29 @@ begin
   const SiMatches = TRegEx.Matches(Xml, '<si>(.*?)</si>', [roIgnoreCase, roSingleLine]);
   for var SiMatch in SiMatches do
     if SiMatch.Groups.Count > 1 then
-    begin
-      // Phonetic guide blocks carry their own <t> elements that are not part of the text.
-      const SiXml = TRegEx.Replace(SiMatch.Groups[1].Value, '<rPh\s[^>]*>.*?</rPh>', '', [roIgnoreCase, roSingleLine]);
-      var Text := '';
-      const TextMatches = TRegEx.Matches(SiXml, '<t(?:\s[^>]*)?>([^<]*)</t>', [roIgnoreCase]);
-      for var TextMatch in TextMatches do
-        if TextMatch.Groups.Count > 1 then
-          Text := Text + TXml.Unescape(TextMatch.Groups[1].Value);
-      FSharedStrings.Add(Text);
-    end;
+      FSharedStrings.Add(RichTextOf(SiMatch.Groups[1].Value));
+end;
+
+// The text of a shared string <si> or an inline string <is>: plain or split over
+// rich text runs. Phonetic guide blocks carry their own <t> elements that are not
+// part of the text.
+function TExcelWorkbookReader.RichTextOf(const RichTextXml: string): string;
+begin
+  const TextXml = TRegEx.Replace(RichTextXml, '<rPh\s[^>]*>.*?</rPh>', '', [roIgnoreCase, roSingleLine]);
+  Result := '';
+  const TextMatches = TRegEx.Matches(TextXml, '<t(?:\s[^>]*)?>([^<]*)</t>', [roIgnoreCase]);
+  for var TextMatch in TextMatches do
+    if TextMatch.Groups.Count > 1 then
+      Result := Result + TXml.Unescape(TextMatch.Groups[1].Value);
+end;
+
+function TExcelWorkbookReader.InlineStringOf(const CellXml: string): string;
+begin
+  const InlineMatch = TRegEx.Match(CellXml, '<is>(.*?)</is>', [roIgnoreCase, roSingleLine]);
+  if InlineMatch.Success then
+    Result := RichTextOf(InlineMatch.Groups[1].Value)
+  else
+    Result := '';
 end;
 
 procedure TExcelWorkbookReader.ParseStyles(const Xml: string);
@@ -804,6 +821,11 @@ begin
             Cell := Sheet.GetCell(Address) as TExcelCell;
           end;
         end
+        else if CellType = InlineStringCellType then
+        begin
+          Sheet.SetCellValue(Address, InlineStringOf(Match.Value), True);
+          Cell := Sheet.GetCell(Address) as TExcelCell;
+        end
         else if CellType = 'b' then
         begin
           Sheet.SetBooleanValue(Address, Value = '1');
@@ -931,9 +953,10 @@ end;
 
 function TExcelWorkbookReader.HoldsCellContent(const Match: TMatch): Boolean;
 begin
-  // A cell match holds content when it carries <v>, or a formula without a
-  // cached value. A missing <v> shows as a lower group count.
-  Result := (Match.Groups.Count > 6) or (MatchGroup(Match, 4) <> '');
+  // A cell match holds content when it carries <v>, a formula without a cached
+  // value, or an inline string, which keeps its text in <is> instead of <v>.
+  // A missing <v> shows as a lower group count.
+  Result := (Match.Groups.Count > 6) or (MatchGroup(Match, 4) <> '') or (MatchGroup(Match, 3) = InlineStringCellType);
 end;
 
 function TExcelWorkbookReader.MatchGroup(const Match: TMatch; const Index: Integer): string;

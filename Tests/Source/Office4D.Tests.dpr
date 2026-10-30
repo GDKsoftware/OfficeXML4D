@@ -55,7 +55,8 @@ uses
   Office4D.Tests.Excel.DeleteColumnRow in 'Office4D.Tests.Excel.DeleteColumnRow.pas',
   Office4D.Tests.Excel.SharedFormulaParsing in 'Office4D.Tests.Excel.SharedFormulaParsing.pas',
   Office4D.Tests.Excel.UsedRange in 'Office4D.Tests.Excel.UsedRange.pas',
-  Office4D.Tests.Excel.CachedValues in 'Office4D.Tests.Excel.CachedValues.pas';
+  Office4D.Tests.Excel.CachedValues in 'Office4D.Tests.Excel.CachedValues.pas',
+  Office4D.Tests.Excel.InlineStrings in 'Office4D.Tests.Excel.InlineStrings.pas';
 
 var
   Runner: ITestRunner;
