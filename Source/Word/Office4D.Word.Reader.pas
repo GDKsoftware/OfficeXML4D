@@ -35,6 +35,7 @@ type
     procedure ParseRun(const Para: TWordParagraph; const RunXml, Hyperlink: string);
     procedure ApplyListStyle(const Para: TWordParagraph; const ParagraphXml: string);
     procedure ParseDocumentRels(const XmlContent: string; const Hyperlinks: TDictionary<string, string>);
+    procedure AddFirstPartPath(const Hyperlinks: TDictionary<string, string>; const Key, Target: string);
     procedure ParseHeaderFooterXml(const XmlContent: string; const Target: IWordHeaderFooter);
   public
     constructor Create(const Package: TOXMLPackage; const Content: TWordDocumentContent);
@@ -52,14 +53,21 @@ uses
   Office4D.Types;
 
 const
+  PartDocument = 'word/document.xml';
   PartDocumentRels = 'word/_rels/document.xml.rels';
-  PartWordPrefix = 'word/';
   KeyHeader = '__header__';
   KeyFooter = '__footer__';
 
   ElementParagraph = 'w:p';
   ElementRun = 'w:r';
   ElementHyperlink = 'w:hyperlink';
+  ElementNumId = 'w:numId';
+  AttributeVal = 'w:val';
+  AttributeRelationshipId = 'r:id';
+
+  RelTypeSuffixHyperlink = '/hyperlink';
+  RelTypeSuffixHeader = '/header';
+  RelTypeSuffixFooter = '/footer';
 
   TextElementPattern = '<w:t(?:\s[^>]*)?>([^<]*)</w:t>';
 
@@ -98,14 +106,14 @@ procedure TWordDocumentReader.ReadHeaderFooter(const HyperlinkMap: TDictionary<s
 begin
   if HyperlinkMap.ContainsKey(KeyHeader) then
   begin
-    const HeaderPath = PartWordPrefix + HyperlinkMap[KeyHeader];
+    const HeaderPath = HyperlinkMap[KeyHeader];
     if FPackage.PartExists(HeaderPath) then
       ParseHeaderFooterXml(FPackage.GetPartContent(HeaderPath), FContent.Header);
   end;
 
   if HyperlinkMap.ContainsKey(KeyFooter) then
   begin
-    const FooterPath = PartWordPrefix + HyperlinkMap[KeyFooter];
+    const FooterPath = HyperlinkMap[KeyFooter];
     if FPackage.PartExists(FooterPath) then
       ParseHeaderFooterXml(FPackage.GetPartContent(FooterPath), FContent.Footer);
   end;
@@ -116,10 +124,13 @@ begin
   var Rels := TRelationships.Create;
   try
     Rels.LoadFromXml(FPackage.GetPartContent(PartRootRels));
-    var DocumentPath := Rels.GetTargetByType(RelTypeOfficeDocument);
+    const DocumentTarget = Rels.GetTargetByType(RelTypeOfficeDocument);
+    if DocumentTarget.IsEmpty then
+      Exit;
 
-    if DocumentPath <> '' then
-      ParseDocumentXml(FPackage.GetPartContent(DocumentPath), HyperlinkMap);
+    const DocumentPath = TRelationships.ResolveTarget('', DocumentTarget);
+    const DocumentXml = FPackage.GetPartContent(DocumentPath);
+    ParseDocumentXml(DocumentXml, HyperlinkMap);
   finally
     Rels.Free;
   end;
@@ -174,12 +185,11 @@ end;
 
 procedure TWordDocumentReader.ApplyListStyle(const Para: TWordParagraph; const ParagraphXml: string);
 begin
-  var NumIdPattern := '<w:numId\s+w:val="(\d+)"';
-  var NumIdMatch := TRegEx.Match(ParagraphXml, NumIdPattern, [roIgnoreCase]);
-  if not (NumIdMatch.Success and (NumIdMatch.Groups.Count > 1)) then
+  var NumIdElement: TXmlElement;
+  if not TXml.TryFindElement(ParagraphXml, ElementNumId, NumIdElement) then
     Exit;
 
-  var NumId := StrToIntDef(NumIdMatch.Groups[1].Value, 0);
+  var NumId := StrToIntDef(NumIdElement.Attribute(AttributeVal), 0);
   if NumId = 1 then
     Para.SetListStyle(TListStyle.Bullet)
   else if NumId = 2 then
@@ -218,9 +228,9 @@ procedure TWordDocumentReader.ParseHyperlink(const Para: TWordParagraph; const H
 begin
   var Url := '';
 
-  var RelIdMatch := TRegEx.Match(Hyperlink.OpenTag, 'r:id="([^"]*)"', [roIgnoreCase]);
-  if RelIdMatch.Success and (RelIdMatch.Groups.Count > 1) then
-    HyperlinkMap.TryGetValue(RelIdMatch.Groups[1].Value, Url);
+  const RelationshipId = Hyperlink.Attribute(AttributeRelationshipId);
+  if not RelationshipId.IsEmpty then
+    HyperlinkMap.TryGetValue(RelationshipId, Url);
 
   for var Run in TXml.FindElements(Hyperlink.Inner, ElementRun) do
     ParseRun(Para, Run.Inner, Url);
@@ -246,27 +256,31 @@ end;
 procedure TWordDocumentReader.ParseDocumentRels(const XmlContent: string;
   const Hyperlinks: TDictionary<string, string>);
 begin
-  var Pattern := '<Relationship[^>]+Id="([^"]+)"[^>]+Type="[^"]*hyperlink[^"]*"[^>]+Target="([^"]+)"';
-  var Matches := TRegEx.Matches(XmlContent, Pattern, [roIgnoreCase, roSingleLine]);
-  for var Match in Matches do
-  begin
-    if Match.Groups.Count > 2 then
+  var Rels := TRelationships.Create;
+  try
+    Rels.LoadFromXml(XmlContent);
+
+    for var Relationship in Rels.Relationships do
     begin
-      var RelId := Match.Groups[1].Value;
-      var Target := Match.Groups[2].Value;
-      Hyperlinks.AddOrSetValue(RelId, Target);
+      if Relationship.RelType.EndsWith(RelTypeSuffixHyperlink) then
+        Hyperlinks.AddOrSetValue(Relationship.Id, Relationship.Target)
+      else if Relationship.RelType.EndsWith(RelTypeSuffixHeader) then
+        AddFirstPartPath(Hyperlinks, KeyHeader, Relationship.Target)
+      else if Relationship.RelType.EndsWith(RelTypeSuffixFooter) then
+        AddFirstPartPath(Hyperlinks, KeyFooter, Relationship.Target);
     end;
+  finally
+    Rels.Free;
   end;
+end;
 
-  var HeaderPattern := '<Relationship[^>]+Type="[^"]*header[^"]*"[^>]+Target="([^"]+)"';
-  var HeaderMatch := TRegEx.Match(XmlContent, HeaderPattern, [roIgnoreCase, roSingleLine]);
-  if HeaderMatch.Success and (HeaderMatch.Groups.Count > 1) then
-    Hyperlinks.AddOrSetValue(KeyHeader, HeaderMatch.Groups[1].Value);
-
-  var FooterPattern := '<Relationship[^>]+Type="[^"]*footer[^"]*"[^>]+Target="([^"]+)"';
-  var FooterMatch := TRegEx.Match(XmlContent, FooterPattern, [roIgnoreCase, roSingleLine]);
-  if FooterMatch.Success and (FooterMatch.Groups.Count > 1) then
-    Hyperlinks.AddOrSetValue(KeyFooter, FooterMatch.Groups[1].Value);
+// Only the first header and footer are read. Their targets are relative to the
+// document part or absolute from the package root, depending on the writer.
+procedure TWordDocumentReader.AddFirstPartPath(const Hyperlinks: TDictionary<string, string>;
+                                               const Key, Target: string);
+begin
+  if not Hyperlinks.ContainsKey(Key) then
+    Hyperlinks.Add(Key, TRelationships.ResolveTarget(PartDocument, Target));
 end;
 
 procedure TWordDocumentReader.ParseHeaderFooterXml(const XmlContent: string; const Target: IWordHeaderFooter);

@@ -184,6 +184,9 @@
         <DCCReference Include="Office4D.Tests.Excel.UsedRange.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.CachedValues.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.InlineStrings.pas"/>
+        <DCCReference Include="Office4D.Tests.Excel.XmlShape.pas"/>
+        <DCCReference Include="Office4D.Tests.Word.XmlShape.pas"/>
+        <DCCReference Include="Office4D.Tests.PowerPoint.XmlShape.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.Notes.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.RemoveSheet.pas"/>
         <DCCReference Include="Office4D.Tests.Excel.ClearColumnRow.pas"/>

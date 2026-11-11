@@ -5,7 +5,8 @@ interface
 uses
   Office4D.PowerPoint,
   Office4D.Package,
-  Office4D.PowerPoint.Model;
+  Office4D.PowerPoint.Model,
+  Office4D.Xml;
 
 type
   /// <summary>
@@ -19,7 +20,10 @@ type
     FContent: TPowerPointContent;
 
     procedure ParseSlideXml(const Xml: string);
+    function IsTitleShape(const ShapeXml: string): Boolean;
+    function TextOf(const Xml: string): string;
     procedure ParseParagraphXml(const Xml: string; const Slide: IPowerPointSlide);
+    procedure ApplyRunProperties(const Run: IPowerPointRun; const RunProperties: TXmlElement);
   public
     constructor Create(const Package: TOXMLPackage; const Content: TPowerPointContent);
 
@@ -30,16 +34,30 @@ implementation
 
 uses
   System.SysUtils,
-  System.RegularExpressions,
   Office4D.Metadata,
   Office4D.Relationships,
-  Office4D.Types,
-  Office4D.Xml;
+  Office4D.Types;
 
 const
+  ElementSlideId = 'p:sldId';
+  ElementShape = 'p:sp';
+  ElementPlaceholder = 'p:ph';
+  ElementParagraph = 'a:p';
+  ElementParagraphProperties = 'a:pPr';
+  ElementRun = 'a:r';
+  ElementRunProperties = 'a:rPr';
+  ElementText = 'a:t';
+  ElementOutline = 'a:ln';
+  ElementSolidFill = 'a:solidFill';
+  ElementRgbColor = 'a:srgbClr';
+  ElementLatinFont = 'a:latin';
 
-  PartPresentationRels = 'ppt/_rels/presentation.xml.rels';
-  PartPptPrefix = 'ppt/';
+  AttributeRelationshipId = 'r:id';
+
+  PlaceholderTitle = 'title';
+  PlaceholderCenteredTitle = 'ctrTitle';
+  UnderlineSingle = 'sng';
+  HundredthsPerPoint = 100;
 
 { TPowerPointReader }
 
@@ -56,15 +74,14 @@ begin
   var RootRels := TRelationships.Create;
   try
     RootRels.LoadFromXml(RootRelsXml);
-    var PresentationPath := RootRels.GetTargetByType(RelTypeOfficeDocument);
-    if PresentationPath = '' then
+    const PresentationTarget = RootRels.GetTargetByType(RelTypeOfficeDocument);
+    if PresentationTarget = '' then
       Exit;
-    if PresentationPath.StartsWith('/') then
-      PresentationPath := PresentationPath.Substring(1);
 
+    const PresentationPath = TRelationships.ResolveTarget('', PresentationTarget);
     const PresentationXml = FPackage.GetPartContent(PresentationPath);
 
-    const RelsPath = PartPresentationRels;
+    const RelsPath = TRelationships.RelationshipsPartOf(PresentationPath);
     if not FPackage.PartExists(RelsPath) then
       Exit;
 
@@ -73,19 +90,16 @@ begin
       PresRels.LoadFromXml(FPackage.GetPartContent(RelsPath));
 
       // Slides are ordered by the sldIdLst in presentation.xml, not by part name.
-      const SlideIdMatches = TRegEx.Matches(PresentationXml, '<p:sldId\s[^>]*r:id="([^"]+)"', [roIgnoreCase]);
-      for var Match in SlideIdMatches do
+      for var SlideId in TXml.FindElements(PresentationXml, ElementSlideId) do
       begin
-        if Match.Groups.Count > 1 then
-        begin
-          const RelId = Match.Groups[1].Value;
-          var SlideTarget := PresRels.GetById(RelId).Target;
-          if SlideTarget.StartsWith('/') then
-            SlideTarget := SlideTarget.Substring(1)
-          else
-            SlideTarget := PartPptPrefix + SlideTarget;
-          ParseSlideXml(FPackage.GetPartContent(SlideTarget));
-        end;
+        const RelId = SlideId.Attribute(AttributeRelationshipId);
+        if RelId.IsEmpty then
+          Continue;
+
+        const SlideRelationship = PresRels.GetById(RelId);
+        const SlidePath = TRelationships.ResolveTarget(PresentationPath, SlideRelationship.Target);
+        const SlideXml = FPackage.GetPartContent(SlidePath);
+        ParseSlideXml(SlideXml);
       end;
     finally
       PresRels.Free;
@@ -106,29 +120,39 @@ begin
   // so the shapes below are the shapes of the slide, each of them once.
   const SlideXml = TXml.ReduceAlternateContent(Xml);
 
-  const SpMatches = TRegEx.Matches(SlideXml, '<p:sp>(.*?)</p:sp>', [roIgnoreCase, roSingleLine]);
-  for var SpMatch in SpMatches do
+  for var Shape in TXml.FindElements(SlideXml, ElementShape) do
   begin
-    if SpMatch.Groups.Count > 1 then
+    if IsTitleShape(Shape.Inner) then
     begin
-      const SpXml = SpMatch.Groups[1].Value;
-      const IsTitle = TRegEx.IsMatch(SpXml, '<p:ph\s[^>]*type="(?:title|ctrTitle)"', [roIgnoreCase]);
-      if IsTitle then
+      Slide.Title := TextOf(Shape.Inner);
+    end
+    else
+    begin
+      for var Paragraph in TXml.FindElements(Shape.Inner, ElementParagraph) do
       begin
-        var Title := '';
-        const TextMatches = TRegEx.Matches(SpXml, '<a:t>([^<]*)</a:t>', [roIgnoreCase]);
-        for var TextMatch in TextMatches do
-          Title := Title + TXml.Unescape(TextMatch.Groups[1].Value);
-        Slide.Title := Title;
-      end
-      else
-      begin
-        const ParagraphMatches = TRegEx.Matches(SpXml, '<a:p>(.*?)</a:p>', [roIgnoreCase, roSingleLine]);
-        for var ParagraphMatch in ParagraphMatches do
-          if ParagraphMatch.Groups.Count > 1 then
-            ParseParagraphXml(ParagraphMatch.Groups[1].Value, Slide);
+        ParseParagraphXml(Paragraph.Inner, Slide);
       end;
     end;
+  end;
+end;
+
+function TPowerPointReader.IsTitleShape(const ShapeXml: string): Boolean;
+begin
+  var Placeholder: TXmlElement;
+  if not TXml.TryFindElement(ShapeXml, ElementPlaceholder, Placeholder) then
+    Exit(False);
+
+  const PlaceholderType = Placeholder.Attribute('type');
+  Result := (PlaceholderType = PlaceholderTitle) or (PlaceholderType = PlaceholderCenteredTitle);
+end;
+
+function TPowerPointReader.TextOf(const Xml: string): string;
+begin
+  Result := '';
+  for var TextElement in TXml.FindElements(Xml, ElementText) do
+  begin
+    const Text = TXml.Unescape(TextElement.Inner);
+    Result := Result + Text;
   end;
 end;
 
@@ -137,47 +161,49 @@ begin
   const Paragraph = Slide.AddParagraph;
 
   Paragraph.Bullet := (Pos('<a:buChar', Xml) > 0) or (Pos('<a:buAutoNum', Xml) > 0);
-  const LevelMatch = TRegEx.Match(Xml, '<a:pPr[^>]*\slvl="(\d+)"', [roIgnoreCase]);
-  if LevelMatch.Success then
-    Paragraph.IndentLevel := StrToIntDef(LevelMatch.Groups[1].Value, 0);
 
-  const RunMatches = TRegEx.Matches(Xml, '<a:r>(.*?)</a:r>', [roIgnoreCase, roSingleLine]);
-  for var RunMatch in RunMatches do
+  var ParagraphProperties: TXmlElement;
+  if TXml.TryFindElement(Xml, ElementParagraphProperties, ParagraphProperties) then
+    Paragraph.IndentLevel := StrToIntDef(ParagraphProperties.Attribute('lvl'), 0);
+
+  for var RunElement in TXml.FindElements(Xml, ElementRun) do
   begin
-    if RunMatch.Groups.Count > 1 then
-    begin
-      const RunXml = RunMatch.Groups[1].Value;
-      const TextMatch = TRegEx.Match(RunXml, '<a:t>([^<]*)</a:t>', [roIgnoreCase]);
-      if not TextMatch.Success then
-        Continue;
+    var Text: TXmlElement;
+    if not TXml.TryFindElement(RunElement.Inner, ElementText, Text) then
+      Continue;
 
-      const Run = Paragraph.AddRun(TXml.Unescape(TextMatch.Groups[1].Value));
+    const Run = Paragraph.AddRun(TXml.Unescape(Text.Inner));
 
-      const RPrMatch = TRegEx.Match(RunXml, '<a:rPr([^>]*?)(?:/>|>(.*?)</a:rPr>)', [roIgnoreCase, roSingleLine]);
-      if RPrMatch.Success then
-      begin
-        const RPrAttrs = RPrMatch.Groups[1].Value;
-        Run.Bold := TRegEx.IsMatch(RPrAttrs, '\bb="1"', [roIgnoreCase]);
-        Run.Italic := TRegEx.IsMatch(RPrAttrs, '\bi="1"', [roIgnoreCase]);
-        Run.Underline := TRegEx.IsMatch(RPrAttrs, '\bu="sng"', [roIgnoreCase]);
-
-        const SizeMatch = TRegEx.Match(RPrAttrs, '\bsz="(\d+)"', [roIgnoreCase]);
-        if SizeMatch.Success then
-          Run.FontSize := StrToIntDef(SizeMatch.Groups[1].Value, 0) div 100;
-
-        if RPrMatch.Groups.Count > 2 then
-        begin
-          const RPrChildren = RPrMatch.Groups[2].Value;
-          const ColorMatch = TRegEx.Match(RPrChildren, '<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"', [roIgnoreCase]);
-          if ColorMatch.Success then
-            Run.FontColor := ColorMatch.Groups[1].Value;
-          const FontMatch = TRegEx.Match(RPrChildren, '<a:latin typeface="([^"]*)"', [roIgnoreCase]);
-          if FontMatch.Success then
-            Run.FontName := FontMatch.Groups[1].Value;
-        end;
-      end;
-    end;
+    var RunProperties: TXmlElement;
+    if TXml.TryFindElement(RunElement.Inner, ElementRunProperties, RunProperties) then
+      ApplyRunProperties(Run, RunProperties);
   end;
+end;
+
+procedure TPowerPointReader.ApplyRunProperties(const Run: IPowerPointRun; const RunProperties: TXmlElement);
+begin
+  Run.Bold := TXml.BooleanOf(RunProperties.Attribute('b'), False);
+  Run.Italic := TXml.BooleanOf(RunProperties.Attribute('i'), False);
+  Run.Underline := (RunProperties.Attribute('u') = UnderlineSingle);
+
+  var Size: string;
+  if TXml.TryGetAttribute(RunProperties.OpenTag, 'sz', Size) then
+    Run.FontSize := StrToIntDef(Size, 0) div HundredthsPerPoint;
+
+  // An outline (a:ln) carries a solidFill of its own, which is not the text colour.
+  const Outlines = TXml.FindElements(RunProperties.Inner, ElementOutline);
+  const TextProperties = TXml.RemoveElements(RunProperties.Inner, Outlines);
+
+  var Fill: TXmlElement;
+  var Color: TXmlElement;
+  const HasRgbColor = (TXml.TryFindElement(TextProperties, ElementSolidFill, Fill) and
+                       TXml.TryFindElement(Fill.Inner, ElementRgbColor, Color));
+  if HasRgbColor then
+    Run.FontColor := Color.Attribute('val');
+
+  var LatinFont: TXmlElement;
+  if TXml.TryFindElement(TextProperties, ElementLatinFont, LatinFont) then
+    Run.FontName := LatinFont.Attribute('typeface');
 end;
 
 end.
