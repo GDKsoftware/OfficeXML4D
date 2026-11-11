@@ -17,6 +17,12 @@ type
     EndPos: Integer;
     OpenTag: string;
     Inner: string;
+
+    /// <summary>
+    /// The value of the attribute Name on this element, see
+    /// <see cref="TXml.AttributeValue"/>.
+    /// </summary>
+    function Attribute(const Name: string): string;
   end;
 
   /// <summary>
@@ -28,10 +34,46 @@ type
   private
     class function ScanTagEnd(const Xml: string; TagStart: Integer): Integer; static;
     class function IsTagNameEnd(const Value: Char): Boolean; static;
+    class function CloseTagEnd(const Xml, ClosePrefix: string; const Cursor: Integer): Integer; static;
     class function SelectAlternateContentBranch(const AlternateContentXml: string): string; static;
   public
     class function Escape(const Value: string): string; static;
     class function Unescape(const Value: string): string; static;
+
+    /// <summary>
+    /// Returns the value of the attribute Name in StartTag with its entities
+    /// decoded, or an empty string when the tag has no such attribute. The
+    /// order of the attributes, the quote character and whitespace around '='
+    /// make no difference. Name is matched as written, prefix included.
+    /// </summary>
+    class function AttributeValue(const StartTag, Name: string): string; static;
+
+    /// <summary>
+    /// Returns True and the decoded value when StartTag carries the attribute
+    /// Name, so an attribute that is present but empty can be told apart from
+    /// one that is missing.
+    /// </summary>
+    class function TryGetAttribute(const StartTag, Name: string; out Value: string): Boolean; static;
+
+    /// <summary>
+    /// Returns the prefix, colon included, that Xml binds to NamespaceUri, or
+    /// an empty string when NamespaceUri is the default namespace or is not
+    /// declared. Writers are free to choose a prefix, so a reader prepends this
+    /// to the local names it looks for.
+    /// </summary>
+    class function PrefixOf(const Xml, NamespaceUri: string): string; static;
+
+    /// <summary>
+    /// Reads an xsd:boolean: '1' and 'true' are True, '0' and 'false' are
+    /// False, and anything else, an absent attribute included, is Default.
+    /// </summary>
+    class function BooleanOf(const Value: string; const Default: Boolean): Boolean; static;
+
+    /// <summary>
+    /// Returns True and the first ElementName element of Xml, as
+    /// <see cref="FindElements"/> would list it first.
+    /// </summary>
+    class function TryFindElement(const Xml, ElementName: string; out Element: TXmlElement): Boolean; static;
 
     /// <summary>
     /// Returns every ElementName element at the outermost nesting level of Xml,
@@ -71,12 +113,114 @@ type
 implementation
 
 uses
-  System.Generics.Collections;
+  System.Generics.Collections,
+  System.RegularExpressions;
+
+type
+  /// <summary>
+  /// Walks the attributes of one start tag in document order, so a value that
+  /// happens to contain name="..." text is never mistaken for an attribute.
+  /// </summary>
+  TAttributeScanner = record
+  private
+    FTag: string;
+    FCursor: Integer;
+
+    function IsAtEnd: Boolean;
+    function IsWhitespace: Boolean;
+    procedure SkipWhitespace;
+    function ReadName: string;
+    function TryReadQuotedValue(out RawValue: string): Boolean;
+  public
+    constructor Create(const StartTag: string);
+
+    function TryReadNext(out Name, RawValue: string): Boolean;
+  end;
 
 const
   ElementAlternateContent = 'mc:AlternateContent';
   ElementChoice = 'mc:Choice';
   ElementFallback = 'mc:Fallback';
+
+{ TAttributeScanner }
+
+constructor TAttributeScanner.Create(const StartTag: string);
+begin
+  FTag := StartTag;
+  FCursor := 2;
+
+  while not IsAtEnd and not IsWhitespace and not CharInSet(FTag[FCursor], ['/', '>']) do
+    Inc(FCursor);
+end;
+
+function TAttributeScanner.TryReadNext(out Name, RawValue: string): Boolean;
+begin
+  SkipWhitespace;
+  Name := ReadName;
+  if Name.IsEmpty then
+    Exit(False);
+
+  SkipWhitespace;
+  const HasEqualsSign = (not IsAtEnd and (FTag[FCursor] = '='));
+  if not HasEqualsSign then
+    Exit(False);
+
+  Inc(FCursor);
+  SkipWhitespace;
+  Result := TryReadQuotedValue(RawValue);
+end;
+
+function TAttributeScanner.IsAtEnd: Boolean;
+begin
+  Result := FCursor > Length(FTag);
+end;
+
+function TAttributeScanner.IsWhitespace: Boolean;
+begin
+  Result := CharInSet(FTag[FCursor], [' ', #9, #10, #13]);
+end;
+
+procedure TAttributeScanner.SkipWhitespace;
+begin
+  while not IsAtEnd and IsWhitespace do
+    Inc(FCursor);
+end;
+
+function TAttributeScanner.ReadName: string;
+begin
+  const NameStart = FCursor;
+  while not IsAtEnd and not IsWhitespace and not CharInSet(FTag[FCursor], ['=', '/', '>']) do
+    Inc(FCursor);
+
+  Result := Copy(FTag, NameStart, FCursor - NameStart);
+end;
+
+function TAttributeScanner.TryReadQuotedValue(out RawValue: string): Boolean;
+begin
+  RawValue := '';
+  if IsAtEnd or not CharInSet(FTag[FCursor], ['"', '''']) then
+    Exit(False);
+
+  const Quote = FTag[FCursor];
+  const ValueStart = FCursor + 1;
+  const ClosingQuote = Pos(Quote, FTag, ValueStart);
+  const IsUnterminated = (ClosingQuote = 0);
+  if IsUnterminated then
+    Exit(False);
+
+  RawValue := Copy(FTag, ValueStart, ClosingQuote - ValueStart);
+  FCursor := ClosingQuote + 1;
+  Result := True;
+end;
+
+{ TXmlElement }
+
+function TXmlElement.Attribute(const Name: string): string;
+begin
+  Result := TXml.AttributeValue(OpenTag, Name);
+end;
+
+{ TXml }
 
 class function TXml.Escape(const Value: string): string;
 begin
@@ -98,6 +242,66 @@ begin
   Result := StringReplace(Result, '&apos;', '''', [rfReplaceAll]);
   // &amp; must be decoded last so escaped entities like &amp;lt; survive intact.
   Result := StringReplace(Result, '&amp;', '&', [rfReplaceAll]);
+end;
+
+class function TXml.AttributeValue(const StartTag, Name: string): string;
+begin
+  if not TryGetAttribute(StartTag, Name, Result) then
+    Result := '';
+end;
+
+class function TXml.TryGetAttribute(const StartTag, Name: string; out Value: string): Boolean;
+begin
+  Value := '';
+
+  var Scanner := TAttributeScanner.Create(StartTag);
+  var AttributeName: string;
+  var RawValue: string;
+  while Scanner.TryReadNext(AttributeName, RawValue) do
+  begin
+    const IsRequestedAttribute = (AttributeName = Name);
+    if IsRequestedAttribute then
+    begin
+      Value := Unescape(RawValue);
+      Exit(True);
+    end;
+  end;
+
+  Result := False;
+end;
+
+class function TXml.PrefixOf(const Xml, NamespaceUri: string): string;
+begin
+  const EscapedUri = TRegEx.Escape(NamespaceUri);
+  const Pattern = Format('\sxmlns(?::([^\s=/>]+))?\s*=\s*(["''])%s\2', [EscapedUri]);
+  const Declaration = TRegEx.Match(Xml, Pattern);
+  if not Declaration.Success then
+    Exit('');
+
+  const Prefix = Declaration.Groups[1].Value;
+  if Prefix.IsEmpty then
+    Exit('');
+
+  Result := Prefix + ':';
+end;
+
+class function TXml.BooleanOf(const Value: string; const Default: Boolean): Boolean;
+begin
+  if (Value = '1') or (Value = 'true') then
+    Exit(True);
+
+  if (Value = '0') or (Value = 'false') then
+    Exit(False);
+
+  Result := Default;
+end;
+
+class function TXml.TryFindElement(const Xml, ElementName: string; out Element: TXmlElement): Boolean;
+begin
+  const Elements = FindElements(Xml, ElementName);
+  Result := (Length(Elements) > 0);
+  if Result then
+    Element := Elements[0];
 end;
 
 class function TXml.IsTagNameEnd(const Value: Char): Boolean;
@@ -127,10 +331,26 @@ begin
   Result := 0;
 end;
 
+class function TXml.CloseTagEnd(const Xml, ClosePrefix: string; const Cursor: Integer): Integer;
+begin
+  if Copy(Xml, Cursor, Length(ClosePrefix)) <> ClosePrefix then
+    Exit(0);
+
+  var TagEnd := Cursor + Length(ClosePrefix);
+  while (TagEnd <= Length(Xml)) and CharInSet(Xml[TagEnd], [' ', #9, #10, #13]) do
+    Inc(TagEnd);
+
+  const IsCloseTag = (TagEnd <= Length(Xml)) and (Xml[TagEnd] = '>');
+  if IsCloseTag then
+    Result := TagEnd
+  else
+    Result := 0;
+end;
+
 class function TXml.FindElements(const Xml, ElementName: string): TArray<TXmlElement>;
 begin
   var OpenPrefix := '<' + ElementName;
-  var ClosePrefix := '</' + ElementName + '>';
+  var ClosePrefix := '</' + ElementName;
 
   var Elements := TList<TXmlElement>.Create;
   try
@@ -147,21 +367,25 @@ begin
         Continue;
       end;
 
-      if (Depth > 0) and (Copy(Xml, Cursor, Length(ClosePrefix)) = ClosePrefix) then
+      var CloseEnd := 0;
+      if Depth > 0 then
+        CloseEnd := CloseTagEnd(Xml, ClosePrefix, Cursor);
+
+      if CloseEnd > 0 then
       begin
         Dec(Depth);
-        Inc(Cursor, Length(ClosePrefix));
 
         if Depth = 0 then
         begin
           var Element: TXmlElement;
           Element.StartPos := ElementStart;
-          Element.EndPos := Cursor;
+          Element.EndPos := CloseEnd + 1;
           Element.OpenTag := Copy(Xml, ElementStart, ContentStart - ElementStart);
-          Element.Inner := Copy(Xml, ContentStart, Cursor - Length(ClosePrefix) - ContentStart);
+          Element.Inner := Copy(Xml, ContentStart, Cursor - ContentStart);
           Elements.Add(Element);
         end;
 
+        Cursor := CloseEnd + 1;
         Continue;
       end;
 

@@ -4,6 +4,18 @@ interface
 
 type
   /// <summary>
+  /// One part of a package written by TTestPackage.WriteParts: its name in the
+  /// package and its XML, exactly as the test wants a reader to meet it.
+  /// </summary>
+  TTestPart = record
+  public
+    Name: string;
+    Content: string;
+
+    class function Create(const Name, Content: string): TTestPart; static;
+  end;
+
+  /// <summary>
   /// Writes the smallest package a reader accepts around a piece of body XML,
   /// so a test can state the construct it is about and nothing else. What the
   /// test cares about is the XML it passes in; everything else here is the
@@ -19,6 +31,10 @@ type
 
     /// Writes a single sheet .xlsx whose sheetData holds SheetDataXml.
     class procedure WriteXlsx(const FileName, SheetDataXml: string); static;
+
+    /// Writes a package holding exactly Parts, so a test controls every part,
+    /// including how a particular writing tool shapes its XML.
+    class procedure WriteParts(const FileName: string; const Parts: TArray<TTestPart>); static;
   end;
 
 implementation
@@ -135,7 +151,30 @@ const
 
   SheetSuffix = '</sheetData></worksheet>';
 
+{ TTestPart }
+
+class function TTestPart.Create(const Name, Content: string): TTestPart;
+begin
+  Result.Name := Name;
+  Result.Content := Content;
+end;
+
 { TTestPackage }
+
+class procedure TTestPackage.WriteParts(const FileName: string; const Parts: TArray<TTestPart>);
+begin
+  var Zip := TZipFile.Create;
+  try
+    Zip.Open(FileName, zmWrite);
+    for var Part in Parts do
+    begin
+      Zip.Add(TEncoding.UTF8.GetBytes(Part.Content), Part.Name);
+    end;
+    Zip.Close;
+  finally
+    Zip.Free;
+  end;
+end;
 
 class procedure TTestPackage.WriteDocx(const FileName, BodyXml: string);
 begin

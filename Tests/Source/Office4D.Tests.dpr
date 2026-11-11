@@ -56,7 +56,10 @@ uses
   Office4D.Tests.Excel.SharedFormulaParsing in 'Office4D.Tests.Excel.SharedFormulaParsing.pas',
   Office4D.Tests.Excel.UsedRange in 'Office4D.Tests.Excel.UsedRange.pas',
   Office4D.Tests.Excel.CachedValues in 'Office4D.Tests.Excel.CachedValues.pas',
-  Office4D.Tests.Excel.InlineStrings in 'Office4D.Tests.Excel.InlineStrings.pas';
+  Office4D.Tests.Excel.InlineStrings in 'Office4D.Tests.Excel.InlineStrings.pas',
+  Office4D.Tests.Excel.XmlShape in 'Office4D.Tests.Excel.XmlShape.pas',
+  Office4D.Tests.Word.XmlShape in 'Office4D.Tests.Word.XmlShape.pas',
+  Office4D.Tests.PowerPoint.XmlShape in 'Office4D.Tests.PowerPoint.XmlShape.pas';
 
 var
   Runner: ITestRunner;

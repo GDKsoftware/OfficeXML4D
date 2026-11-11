@@ -5,8 +5,7 @@ interface
 uses
   System.Classes,
   System.SysUtils,
-  System.Generics.Collections,
-  System.RegularExpressions;
+  System.Generics.Collections;
 
 type
   TRelationship = record
@@ -21,12 +20,30 @@ type
   private
     FRelationships: TRelationshipList;
 
-    function GetAttributeValue(const Element, AttrName: string): string;
+    class function ParentFolderOf(const PartName: string): string; static;
+    class function NormalizeSegments(const PartName: string): string; static;
   public
+    /// <summary>
+    /// Returns the package part a relationship Target points at, seen from the
+    /// part SourcePart whose relationships hold it. Writers state targets
+    /// relative to that part ('worksheets/sheet1.xml', '../comments1.xml') or
+    /// absolute from the package root ('/xl/worksheets/sheet1.xml'); both
+    /// resolve to a part name without a leading slash.
+    /// </summary>
+    class function ResolveTarget(const SourcePart, Target: string): string; static;
+
+    /// <summary>
+    /// Returns the name of the part that holds the relationships of PartName,
+    /// for example 'xl/worksheets/_rels/sheet1.xml.rels' for
+    /// 'xl/worksheets/sheet1.xml'.
+    /// </summary>
+    class function RelationshipsPartOf(const PartName: string): string; static;
+
     constructor Create;
     destructor Destroy; override;
 
     procedure LoadFromXml(const XmlContent: string);
+    function TryGetById(const Id: string; out Relationship: TRelationship): Boolean;
     function GetById(const Id: string): TRelationship;
     function GetByType(const RelType: string): TRelationship;
     function GetTargetByType(const RelType: string): string;
@@ -40,9 +57,73 @@ implementation
 
 uses
   Office4D.Errors,
-  Office4D.Types;
+  Office4D.Types,
+  Office4D.Xml;
+
+const
+  ElementRelationship = 'Relationship';
+  PartSeparator = '/';
+  RelationshipsFolder = '_rels/';
+  RelationshipsExtension = '.rels';
+  ParentSegment = '..';
+  CurrentSegment = '.';
 
 { TRelationships }
+
+class function TRelationships.ResolveTarget(const SourcePart, Target: string): string;
+begin
+  const IsAbsolute = Target.StartsWith(PartSeparator);
+  if IsAbsolute then
+  begin
+    const PathFromRoot = Target.Substring(1);
+    Result := NormalizeSegments(PathFromRoot);
+    Exit;
+  end;
+
+  const SourceFolder = ParentFolderOf(SourcePart);
+  Result := NormalizeSegments(SourceFolder + Target);
+end;
+
+class function TRelationships.RelationshipsPartOf(const PartName: string): string;
+begin
+  const FileNameStart = PartName.LastIndexOf(PartSeparator) + 1;
+  const FileName = PartName.Substring(FileNameStart);
+  const Folder = ParentFolderOf(PartName);
+  Result := Folder + RelationshipsFolder + FileName + RelationshipsExtension;
+end;
+
+class function TRelationships.ParentFolderOf(const PartName: string): string;
+begin
+  const FolderLength = PartName.LastIndexOf(PartSeparator) + 1;
+  Result := PartName.Substring(0, FolderLength);
+end;
+
+class function TRelationships.NormalizeSegments(const PartName: string): string;
+begin
+  var Segments := TList<string>.Create;
+  try
+    for var Segment in PartName.Split([PartSeparator]) do
+    begin
+      const IsParent = (Segment = ParentSegment);
+      const IsNamed = ((Segment <> CurrentSegment) and not Segment.IsEmpty);
+      const HasSegments = (Segments.Count > 0);
+
+      if IsParent then
+      begin
+        if HasSegments then
+          Segments.Delete(Segments.Count - 1);
+      end
+      else if IsNamed then
+      begin
+        Segments.Add(Segment);
+      end;
+    end;
+
+    Result := string.Join(PartSeparator, Segments.ToArray);
+  finally
+    Segments.Free;
+  end;
+end;
 
 constructor TRelationships.Create;
 begin
@@ -56,40 +137,39 @@ begin
   inherited;
 end;
 
-function TRelationships.GetAttributeValue(const Element, AttrName: string): string;
-begin
-  Result := '';
-  var Pattern := AttrName + '=[''"]([^''"]*)[''"]';
-  var Match := TRegEx.Match(Element, Pattern, [roIgnoreCase]);
-  if Match.Success and (Match.Groups.Count > 1) then
-    Result := Match.Groups[1].Value;
-end;
-
 procedure TRelationships.LoadFromXml(const XmlContent: string);
 begin
   FRelationships.Clear;
 
-  var Pattern := '<Relationship\s+[^>]*/?>';
-  var Matches := TRegEx.Matches(XmlContent, Pattern, [roIgnoreCase]);
-
-  for var Match in Matches do
+  const Prefix = TXml.PrefixOf(XmlContent, NsPackageRelationships);
+  for var Element in TXml.FindElements(XmlContent, Prefix + ElementRelationship) do
   begin
-    var Element := Match.Value;
     var Rel: TRelationship;
-    Rel.Id := GetAttributeValue(Element, 'Id');
-    Rel.RelType := GetAttributeValue(Element, 'Type');
-    Rel.Target := GetAttributeValue(Element, 'Target');
+    Rel.Id := Element.Attribute('Id');
+    Rel.RelType := Element.Attribute('Type');
+    Rel.Target := Element.Attribute('Target');
     FRelationships.Add(Rel);
   end;
 end;
 
-function TRelationships.GetById(const Id: string): TRelationship;
+function TRelationships.TryGetById(const Id: string; out Relationship: TRelationship): Boolean;
 begin
   for var Rel in FRelationships do
   begin
     if SameText(Rel.Id, Id) then
-      Exit(Rel);
+    begin
+      Relationship := Rel;
+      Exit(True);
+    end;
   end;
+
+  Result := False;
+end;
+
+function TRelationships.GetById(const Id: string): TRelationship;
+begin
+  if TryGetById(Id, Result) then
+    Exit;
 
   raise EOfficeDocumentException.CreateFmt('Relationship not found: %s', [Id]);
 end;

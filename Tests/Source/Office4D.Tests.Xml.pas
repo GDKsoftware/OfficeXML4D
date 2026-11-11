@@ -43,6 +43,58 @@ type
 
     [Test]
     procedure ReplaceElements_Replacement_SplicesItIn;
+
+    [Test]
+    procedure FindElements_WhitespaceInCloseTag_FindsElement;
+  end;
+
+  [TestFixture]
+  TXmlAttributeTests = class
+  public
+    [Test]
+    [TestCase('First', '<sheet name="Sales" sheetId="1"/>|Sales', '|')]
+    [TestCase('Last', '<sheet sheetId="1" state="hidden" name="Sales"/>|Sales', '|')]
+    [TestCase('SingleQuotes', '<sheet name=''Sales''/>|Sales', '|')]
+    [TestCase('SpacesAroundEquals', '<sheet name = "Sales"/>|Sales', '|')]
+    [TestCase('OpenTag', '<sheet name="Sales">|Sales', '|')]
+    [TestCase('Escaped', '<sheet name="A &amp; B"/>|A & B', '|')]
+    [TestCase('OtherQuoteInside', '<sheet name=''Say "hi"''/>|Say "hi"', '|')]
+    [TestCase('NameInsideOtherValue', '<sheet title=''name="Wrong"'' name="Right"/>|Right', '|')]
+    procedure AttributeValue_AnyShape_ReturnsValue(const StartTag, Expected: string);
+
+    [Test]
+    procedure AttributeValue_LongerOrPrefixedName_IsNotMatched;
+
+    [Test]
+    procedure AttributeValue_PrefixedName_MatchesWithPrefix;
+
+    [Test]
+    procedure TryGetAttribute_EmptyValue_ReturnsTrue;
+
+    [Test]
+    procedure TryGetAttribute_MissingAttribute_ReturnsFalse;
+
+    [Test]
+    [TestCase('Prefixed', '<x:workbook xmlns:x="urn:main"/>|x:', '|')]
+    [TestCase('SingleQuotes', '<x:workbook xmlns:x=''urn:main''/>|x:', '|')]
+    [TestCase('OtherNamespaceFirst', '<x:workbook xmlns="urn:other" xmlns:x="urn:main"/>|x:', '|')]
+    procedure PrefixOf_Declaration_ReturnsPrefix(const Xml, Expected: string);
+
+    [Test]
+    [TestCase('Default', '<workbook xmlns="urn:main"/>')]
+    [TestCase('Undeclared', '<workbook xmlns="urn:other"/>')]
+    procedure PrefixOf_DefaultOrUndeclared_ReturnsEmpty(const Xml: string);
+
+    [Test]
+    [TestCase('One', '1,False,True')]
+    [TestCase('True', 'true,False,True')]
+    [TestCase('Zero', '0,True,False')]
+    [TestCase('False', 'false,True,False')]
+    [TestCase('Other', 'yes,True,True')]
+    procedure BooleanOf_Value_ReturnsBoolean(const Value: string; const Default, Expected: Boolean);
+
+    [Test]
+    procedure BooleanOf_Absent_ReturnsDefault;
   end;
 
 implementation
@@ -140,6 +192,85 @@ begin
     end);
 
   Assert.AreEqual('<w:p>a[shape]b</w:p>', Replaced);
+end;
+
+procedure TXmlFindElementsTests.FindElements_WhitespaceInCloseTag_FindsElement;
+begin
+  const Xml = '<row><c r="A1"><v>1</v></c ><c r="B1"><v>2</v></c></row>';
+
+  var Elements := TXml.FindElements(Xml, 'c');
+
+  Assert.AreEqual(2, Integer(Length(Elements)));
+  Assert.AreEqual('<v>1</v>', Elements[0].Inner);
+  Assert.AreEqual('<v>2</v>', Elements[1].Inner);
+end;
+
+{ TXmlAttributeTests }
+
+procedure TXmlAttributeTests.AttributeValue_AnyShape_ReturnsValue(const StartTag, Expected: string);
+begin
+  const Actual = TXml.AttributeValue(StartTag, 'name');
+
+  Assert.AreEqual(Expected, Actual);
+end;
+
+procedure TXmlAttributeTests.AttributeValue_LongerOrPrefixedName_IsNotMatched;
+begin
+  const Actual = TXml.AttributeValue('<sheet sheetname="Wrong" x:name="Wrong"/>', 'name');
+
+  Assert.AreEqual('', Actual);
+end;
+
+procedure TXmlAttributeTests.AttributeValue_PrefixedName_MatchesWithPrefix;
+begin
+  const StartTag = '<p:sldId id="256" r:id="rId2"/>';
+
+  Assert.AreEqual('256', TXml.AttributeValue(StartTag, 'id'));
+  Assert.AreEqual('rId2', TXml.AttributeValue(StartTag, 'r:id'));
+end;
+
+procedure TXmlAttributeTests.TryGetAttribute_EmptyValue_ReturnsTrue;
+begin
+  var Value: string;
+  const Found = TXml.TryGetAttribute('<c r="A1" t=""/>', 't', Value);
+
+  Assert.IsTrue(Found);
+  Assert.AreEqual('', Value);
+end;
+
+procedure TXmlAttributeTests.TryGetAttribute_MissingAttribute_ReturnsFalse;
+begin
+  var Value: string;
+  const Found = TXml.TryGetAttribute('<c r="A1"/>', 't', Value);
+
+  Assert.IsFalse(Found);
+end;
+
+procedure TXmlAttributeTests.PrefixOf_Declaration_ReturnsPrefix(const Xml, Expected: string);
+begin
+  const Actual = TXml.PrefixOf(Xml, 'urn:main');
+
+  Assert.AreEqual(Expected, Actual);
+end;
+
+procedure TXmlAttributeTests.PrefixOf_DefaultOrUndeclared_ReturnsEmpty(const Xml: string);
+begin
+  const Actual = TXml.PrefixOf(Xml, 'urn:main');
+
+  Assert.AreEqual('', Actual);
+end;
+
+procedure TXmlAttributeTests.BooleanOf_Absent_ReturnsDefault;
+begin
+  Assert.IsTrue(TXml.BooleanOf('', True));
+  Assert.IsFalse(TXml.BooleanOf('', False));
+end;
+
+procedure TXmlAttributeTests.BooleanOf_Value_ReturnsBoolean(const Value: string; const Default, Expected: Boolean);
+begin
+  const Actual = TXml.BooleanOf(Value, Default);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 initialization

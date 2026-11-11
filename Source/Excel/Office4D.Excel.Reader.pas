@@ -4,9 +4,10 @@ interface
 
 uses
   System.Generics.Collections,
-  System.RegularExpressions,
   Office4D.Excel,
   Office4D.Package,
+  Office4D.Relationships,
+  Office4D.Xml,
   Office4D.Excel.Model;
 
 type
@@ -14,10 +15,34 @@ type
   /// Fills a TExcelWorkbookContent from an opened .xlsx package. The shared
   /// strings and the style tables it parses first are scratch state: cells refer
   /// to them by index, so they only have to survive until every sheet is read.
+  /// Elements are located by name in the namespace the part binds to
+  /// SpreadsheetML and attributes are looked up by name, so attribute order,
+  /// quote style and the prefix a writer picks make no difference.
   /// </summary>
   TExcelWorkbookReader = class
   private
+    type
+      TSharedFormulas = TDictionary<Integer, TPair<string, string>>;
+
+      /// <summary>
+      /// What one c element of a sheet says about its cell.
+      /// </summary>
+      TCellXml = record
+        Address: string;
+        StyleIndex: Integer;
+        CellType: string;
+        Formula: string;
+        SharedFormulaIndex: Integer;
+        Value: string;
+        HasValue: Boolean;
+        InlineText: string;
+
+        function HoldsContent: Boolean;
+      end;
+
+  private
     FContent: TExcelWorkbookContent;
+    FSheetRelationshipIds: TList<string>;
     FSharedStrings: TList<string>;
     FStyleBold: TList<Boolean>;
     FStyleItalic: TList<Boolean>;
@@ -42,19 +67,43 @@ type
     FStyleNumberFormat: TList<string>;
 
     procedure ParseWorkbook(const Xml: string);
+    function SheetVisibilityOf(const State: string): TExcelSheetVisibility;
     procedure ParseSharedStrings(const Xml: string);
-    function RichTextOf(const RichTextXml: string): string;
-    function InlineStringOf(const CellXml: string): string;
+    function RichTextOf(const RichTextXml, Prefix: string): string;
+    function InlineStringOf(const CellXml, Prefix: string): string;
     procedure ParseStyles(const Xml: string);
+    function ElementsIn(const Xml, ContainerName, ElementName: string): TArray<TXmlElement>;
+    function ChildAttribute(const Xml, ElementName, AttributeName: string): string;
+    function IsFontFlagSet(const FontXml, ElementName: string): Boolean;
+    function ColorOf(const Xml, ElementName: string): Cardinal;
+    function RgbOf(const ArgbValue: string): Cardinal;
+    function FillColorOf(const FillXml, Prefix: string; const IndexedPalette: TList<Cardinal>): Cardinal;
+    procedure ParseBorderSide(const BorderXml, Prefix, SideName: string; out SideStyle: TExcelBorderStyle;
+                              out SideColor: Cardinal);
+    function StringToBorderStyle(const Value: string): TExcelBorderStyle;
     procedure ParseSheet(const Sheet: TExcelSheet; const Xml: string);
-    function HoldsCellContent(const Match: TMatch): Boolean;
-    function MatchGroup(const Match: TMatch; const Index: Integer): string;
-    procedure ParseComments(const Sheet: TExcelSheet; const Xml: string);
+    procedure ParseFrozenPane(const Sheet: TExcelSheet; const Xml, Prefix: string);
+    function SplitCountOf(const Split: string): Integer;
+    procedure ParseColumnWidths(const Sheet: TExcelSheet; const Xml, Prefix: string);
+    procedure ParseSheetData(const Sheet: TExcelSheet; const Xml, Prefix: string);
+    procedure ReadRows(const Sheet: TExcelSheet; const SheetDataXml, Prefix: string; const Cells: TList<TCellXml>);
+    procedure ApplyRowHeight(const Sheet: TExcelSheet; const Row: TXmlElement; const RowNumber: Integer);
+    function ColumnNumberOf(const Address: string): Integer;
+    function CellXmlOf(const Element: TXmlElement; const Address, Prefix: string): TCellXml;
+    procedure CollectSharedFormulas(const Cells: TList<TCellXml>; const SharedFormulas: TSharedFormulas);
+    procedure ApplyCell(const Sheet: TExcelSheet; const CellXml: TCellXml; const SharedFormulas: TSharedFormulas);
+    function WriteCellValue(const Sheet: TExcelSheet; const CellXml: TCellXml;
+                            const SharedFormulas: TSharedFormulas): TExcelCell;
+    function ResolveSharedFormula(const CellXml: TCellXml; const SharedFormulas: TSharedFormulas): string;
     function AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
+    procedure ApplyCellStyle(const Cell: TExcelCell; const StyleIdx: Integer);
+    procedure ParseMergedCells(const Sheet: TExcelSheet; const Xml, Prefix: string);
+    procedure ParseComments(const Sheet: TExcelSheet; const Xml: string);
 
     procedure ReadMetadata(const Package: TOXMLPackage);
     procedure ReadSheets(const Package: TOXMLPackage);
-    procedure ReadSheetComments(const Package: TOXMLPackage; const Sheet: TExcelSheet; SheetIndex: Integer);
+    function SheetPartPath(const Rels: TRelationships; const SheetIndex: Integer): string;
+    procedure ReadSheetComments(const Package: TOXMLPackage; const Sheet: TExcelSheet; const SheetPath: string);
   public
     constructor Create(const Content: TExcelWorkbookContent);
     destructor Destroy; override;
@@ -68,10 +117,9 @@ uses
   System.SysUtils,
   System.Math,
   System.StrUtils,
+  System.RegularExpressions,
   Office4D.Metadata,
-  Office4D.Relationships,
-  Office4D.Types,
-  Office4D.Xml;
+  Office4D.Types;
 
 const
   InlineStringCellType = 'inlineStr';
@@ -96,73 +144,86 @@ const
   PartSheetPrefix = 'xl/worksheets/sheet';
   PartSheetSuffix = '.xml';
 
+  RelTypeComments = NsOfficeDocumentRelationships + '/comments';
+  RelationshipIdName = 'id';
+
+{ TExcelWorkbookReader.TCellXml }
+
+function TExcelWorkbookReader.TCellXml.HoldsContent: Boolean;
+begin
+  // A cell holds content when it carries <v>, a formula without a cached
+  // value, or an inline string, which keeps its text in <is> instead of <v>.
+  Result := HasValue or (Formula <> '') or (CellType = InlineStringCellType);
+end;
+
 { TExcelWorkbookReader }
 
 procedure TExcelWorkbookReader.ParseWorkbook(const Xml: string);
 begin
-  const Matches = TRegEx.Matches(Xml, '<sheet\s+name="([^"]+)"([^>]*?)(?:/>|>)', [roIgnoreCase]);
-  for var Match in Matches do
-    if Match.Groups.Count > 1 then
-    begin
-      const Sheet = FContent.CreateSheet(TXml.Unescape(Match.Groups[1].Value));
-      const StateMatch = TRegEx.Match(Match.Groups[2].Value, 'state="([^"]+)"', [roIgnoreCase]);
-      if StateMatch.Success then
-      begin
-        if SameText(StateMatch.Groups[1].Value, 'hidden') then
-          Sheet.Visibility := TExcelSheetVisibility.Hidden
-        else if SameText(StateMatch.Groups[1].Value, 'veryHidden') then
-          Sheet.Visibility := TExcelSheetVisibility.VeryHidden;
-      end;
+  FSheetRelationshipIds.Clear;
 
-    end;
+  const Prefix = TXml.PrefixOf(Xml, NsSpreadsheetML);
+  const RelationshipIdAttribute = TXml.PrefixOf(Xml, NsOfficeDocumentRelationships) + RelationshipIdName;
+
+  for var Element in TXml.FindElements(Xml, Prefix + 'sheet') do
+  begin
+    const Sheet = FContent.CreateSheet(Element.Attribute('name'));
+    Sheet.Visibility := SheetVisibilityOf(Element.Attribute('state'));
+    FSheetRelationshipIds.Add(Element.Attribute(RelationshipIdAttribute));
+  end;
+end;
+
+function TExcelWorkbookReader.SheetVisibilityOf(const State: string): TExcelSheetVisibility;
+begin
+  if SameText(State, 'hidden') then
+    Exit(TExcelSheetVisibility.Hidden);
+
+  if SameText(State, 'veryHidden') then
+    Exit(TExcelSheetVisibility.VeryHidden);
+
+  Result := TExcelSheetVisibility.Visible;
 end;
 
 procedure TExcelWorkbookReader.ParseSharedStrings(const Xml: string);
 begin
   FSharedStrings.Clear;
+
   // Every <si> occupies exactly one index slot, including empty entries (<si><t/></si>)
-  // and rich-text entries (<si><r><t>..</t></r><r><t>..</t></r></si>). Matching across
-  // si boundaries shifts all subsequent indices, mapping cells to the wrong strings.
-  const SiMatches = TRegEx.Matches(Xml, '<si>(.*?)</si>', [roIgnoreCase, roSingleLine]);
-  for var SiMatch in SiMatches do
-    if SiMatch.Groups.Count > 1 then
-      FSharedStrings.Add(RichTextOf(SiMatch.Groups[1].Value));
+  // and rich-text entries (<si><r><t>..</t></r><r><t>..</t></r></si>).
+  const Prefix = TXml.PrefixOf(Xml, NsSpreadsheetML);
+  for var SharedString in TXml.FindElements(Xml, Prefix + 'si') do
+  begin
+    const Text = RichTextOf(SharedString.Inner, Prefix);
+    FSharedStrings.Add(Text);
+  end;
 end;
 
 // The text of a shared string <si> or an inline string <is>: plain or split over
 // rich text runs. Phonetic guide blocks carry their own <t> elements that are not
 // part of the text.
-function TExcelWorkbookReader.RichTextOf(const RichTextXml: string): string;
+function TExcelWorkbookReader.RichTextOf(const RichTextXml, Prefix: string): string;
 begin
-  const TextXml = TRegEx.Replace(RichTextXml, '<rPh\s[^>]*>.*?</rPh>', '', [roIgnoreCase, roSingleLine]);
+  const PhoneticGuides = TXml.FindElements(RichTextXml, Prefix + 'rPh');
+  const TextXml = TXml.RemoveElements(RichTextXml, PhoneticGuides);
+
   Result := '';
-  const TextMatches = TRegEx.Matches(TextXml, '<t(?:\s[^>]*)?>([^<]*)</t>', [roIgnoreCase]);
-  for var TextMatch in TextMatches do
-    if TextMatch.Groups.Count > 1 then
-      Result := Result + TXml.Unescape(TextMatch.Groups[1].Value);
+  for var TextElement in TXml.FindElements(TextXml, Prefix + 't') do
+  begin
+    const Text = TXml.Unescape(TextElement.Inner);
+    Result := Result + Text;
+  end;
 end;
 
-function TExcelWorkbookReader.InlineStringOf(const CellXml: string): string;
+function TExcelWorkbookReader.InlineStringOf(const CellXml, Prefix: string): string;
 begin
-  const InlineMatch = TRegEx.Match(CellXml, '<is>(.*?)</is>', [roIgnoreCase, roSingleLine]);
-  if InlineMatch.Success then
-    Result := RichTextOf(InlineMatch.Groups[1].Value)
+  var InlineString: TXmlElement;
+  if TXml.TryFindElement(CellXml, Prefix + 'is', InlineString) then
+    Result := RichTextOf(InlineString.Inner, Prefix)
   else
     Result := '';
 end;
 
 procedure TExcelWorkbookReader.ParseStyles(const Xml: string);
-
-  function StringToBorderStyle(const S: string): TExcelBorderStyle;
-  begin
-    if S = 'thin' then Result := TExcelBorderStyle.Thin
-    else if S = 'medium' then Result := TExcelBorderStyle.Medium
-    else if S = 'thick' then Result := TExcelBorderStyle.Thick
-    else if S = 'dashed' then Result := TExcelBorderStyle.Dashed
-    else if S = 'dotted' then Result := TExcelBorderStyle.Dotted
-    else if S = 'double' then Result := TExcelBorderStyle.Double
-    else Result := TExcelBorderStyle.None;
-  end;
 
   function StringToHAlign(const S: string): TExcelHAlign;
   begin
@@ -179,31 +240,6 @@ procedure TExcelWorkbookReader.ParseStyles(const Xml: string);
     else if S = 'center' then Result := TExcelVAlign.Center
     else if S = 'bottom' then Result := TExcelVAlign.Bottom
     else Result := TExcelVAlign.None;
-  end;
-
-  procedure ParseSide(const BorderXml, Tag: string; out AStyle: TExcelBorderStyle; out AColor: Cardinal);
-  begin
-    AStyle := TExcelBorderStyle.None;
-    AColor := 0;
-
-    // Isolate just this side's element first. Matching the whole <border> and then
-    // scanning to the first <color> lets a self-closing sibling (e.g. <top/>) bleed the
-    // colour of a later side (e.g. <bottom>) into this one, so restrict style/colour to
-    // this element. The alternation handles both <top/> and <top ...>...</top>.
-    const SideMatch = TRegEx.Match(BorderXml,
-      '<' + Tag + '\b[^>]*(?:/>|>.*?</' + Tag + '>)', [roIgnoreCase, roSingleLine]);
-    if not SideMatch.Success then
-      Exit;
-
-    const SideXml = SideMatch.Value;
-
-    const StyleMatch = TRegEx.Match(SideXml, 'style="([^"]*)"', [roIgnoreCase]);
-    if StyleMatch.Success then
-      AStyle := StringToBorderStyle(StyleMatch.Groups[1].Value);
-
-    const ColorMatch = TRegEx.Match(SideXml, '<color\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
-    if ColorMatch.Success then
-      AColor := StrToInt64Def('$' + ColorMatch.Groups[1].Value, 0);
   end;
 
   // Built-in numFmtId values 14-22 are the standard date/time formats
@@ -322,39 +358,32 @@ begin
   var FontsColor := TList<Cardinal>.Create;
   var CustomNumFmts := TDictionary<Integer, string>.Create;
   try
-    const NumFmtMatches = TRegEx.Matches(Xml,
-      '<numFmt\s+numFmtId="(\d+)"\s+formatCode="([^"]*)"', [roIgnoreCase]);
-    for var NumFmtMatch in NumFmtMatches do
-      CustomNumFmts.AddOrSetValue(
-        StrToIntDef(NumFmtMatch.Groups[1].Value, -1),
-        TXml.Unescape(NumFmtMatch.Groups[2].Value));
+    const Prefix = TXml.PrefixOf(Xml, NsSpreadsheetML);
 
-    const FontMatches = TRegEx.Matches(Xml, '<font>(.*?)</font>', [roIgnoreCase, roSingleLine]);
-    for var Match in FontMatches do
+    for var NumFmt in ElementsIn(Xml, Prefix + 'numFmts', Prefix + 'numFmt') do
     begin
-      const FontXml = Match.Groups[1].Value;
-      FontsBold.Add(Pos('<b/>', FontXml) > 0);
-      FontsItalic.Add(Pos('<i/>', FontXml) > 0);
-      FontsUnderline.Add(Pos('<u/>', FontXml) > 0);
-      FontsStrikeout.Add(Pos('<strike/>', FontXml) > 0);
+      const NumFmtId = StrToIntDef(NumFmt.Attribute('numFmtId'), -1);
+      CustomNumFmts.AddOrSetValue(NumFmtId, NumFmt.Attribute('formatCode'));
+    end;
 
-      const ColorMatch = TRegEx.Match(FontXml, '<color\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
-      if ColorMatch.Success then
-        FontsColor.Add(StrToInt64Def('$' + ColorMatch.Groups[1].Value, 0))
-      else
-        FontsColor.Add(0);
+    for var Font in ElementsIn(Xml, Prefix + 'fonts', Prefix + 'font') do
+    begin
+      const FontXml = Font.Inner;
+      const IsBold      = IsFontFlagSet(FontXml, Prefix + 'b');
+      const IsItalic    = IsFontFlagSet(FontXml, Prefix + 'i');
+      const IsUnderline = IsFontFlagSet(FontXml, Prefix + 'u');
+      const IsStrikeout = IsFontFlagSet(FontXml, Prefix + 'strike');
+      const FontColor   = ColorOf(FontXml, Prefix + 'color');
+      const FontName    = ChildAttribute(FontXml, Prefix + 'name', 'val');
+      const FontSize    = ChildAttribute(FontXml, Prefix + 'sz', 'val');
 
-      const NameMatch = TRegEx.Match(FontXml, '<name\s+val="([^"]*)"', [roIgnoreCase]);
-      if NameMatch.Success then
-        FontsName.Add(NameMatch.Groups[1].Value)
-      else
-        FontsName.Add('');
-
-      const SizeMatch = TRegEx.Match(FontXml, '<sz\s+val="([^"]*)"', [roIgnoreCase]);
-      if SizeMatch.Success then
-        FontsSize.Add(StrToFloatDef(SizeMatch.Groups[1].Value, 0, TFormatSettings.Invariant))
-      else
-        FontsSize.Add(0);
+      FontsBold.Add(IsBold);
+      FontsItalic.Add(IsItalic);
+      FontsUnderline.Add(IsUnderline);
+      FontsStrikeout.Add(IsStrikeout);
+      FontsColor.Add(FontColor);
+      FontsName.Add(FontName);
+      FontsSize.Add(StrToFloatDef(FontSize, 0, TFormatSettings.Invariant));
     end;
 
     // Build the indexed colour palette. Start with the OOXML default palette.
@@ -365,92 +394,51 @@ begin
       for var I := 0 to High(OoxmlIndexedColors) do
         IndexedPalette.Add(OoxmlIndexedColors[I]);
 
-      const CustomPaletteMatch = TRegEx.Match(Xml,
-        '<indexedColors>(.*?)</indexedColors>', [roIgnoreCase, roSingleLine]);
-      if CustomPaletteMatch.Success then
+      const CustomColors = ElementsIn(Xml, Prefix + 'indexedColors', Prefix + 'rgbColor');
+      if Length(CustomColors) > 0 then
       begin
-        const RgbMatches = TRegEx.Matches(CustomPaletteMatch.Groups[1].Value,
-          '<rgbColor\s+rgb="00([0-9A-Fa-f]{6})"', [roIgnoreCase]);
-        if RgbMatches.Count > 0 then
+        IndexedPalette.Clear;
+        for var CustomColor in CustomColors do
         begin
-          IndexedPalette.Clear;
-          for var RgbMatch in RgbMatches do
-            IndexedPalette.Add(StrToInt64Def('$' + RgbMatch.Groups[1].Value, 0));
+          const Rgb = RgbOf(CustomColor.Attribute('rgb'));
+          IndexedPalette.Add(Rgb);
         end;
       end;
 
-    const FillMatches = TRegEx.Matches(Xml, '<fill>(.*?)</fill>', [roIgnoreCase, roSingleLine]);
-    for var Match in FillMatches do
-    begin
-      const FillXml = Match.Groups[1].Value;
-      const RgbMatch = TRegEx.Match(FillXml, 'fgColor\s+rgb="FF([0-9A-Fa-f]{6})"', [roIgnoreCase]);
-      if RgbMatch.Success then
-        Fills.Add(StrToInt64Def('$' + RgbMatch.Groups[1].Value, 0))
-      else
+      for var Fill in ElementsIn(Xml, Prefix + 'fills', Prefix + 'fill') do
       begin
-        const IdxMatch = TRegEx.Match(FillXml, 'fgColor\s+indexed="(\d+)"', [roIgnoreCase]);
-        if IdxMatch.Success then
-        begin
-          const Idx = StrToIntDef(IdxMatch.Groups[1].Value, -1);
-          if (Idx >= 0) and (Idx < IndexedPalette.Count) then
-            Fills.Add(IndexedPalette[Idx])
-          else
-            Fills.Add(0);
-        end
-        else
-          Fills.Add(0);
+        const FillColor = FillColorOf(Fill.Inner, Prefix, IndexedPalette);
+        Fills.Add(FillColor);
       end;
-    end;
     finally
       IndexedPalette.Free;
     end;
 
-    const BorderMatches = TRegEx.Matches(Xml, '<border\s*/>', [roIgnoreCase]);
-    for var Match in BorderMatches do
+    for var Border in ElementsIn(Xml, Prefix + 'borders', Prefix + 'border') do
     begin
-      TopStyles.Add(TExcelBorderStyle.None);
-      TopColors.Add(0);
-      RightStyles.Add(TExcelBorderStyle.None);
-      RightColors.Add(0);
-      BottomStyles.Add(TExcelBorderStyle.None);
-      BottomColors.Add(0);
-      LeftStyles.Add(TExcelBorderStyle.None);
-      LeftColors.Add(0);
-    end;
-    const BorderFullMatches = TRegEx.Matches(Xml, '<border>(.*?)</border>', [roIgnoreCase, roSingleLine]);
-    for var Match in BorderFullMatches do
-    begin
-      const BorderXml = Match.Groups[1].Value;
-      var AStyle: TExcelBorderStyle;
-      var AColor: Cardinal;
+      var SideStyle: TExcelBorderStyle;
+      var SideColor: Cardinal;
 
-      ParseSide(BorderXml, 'top', AStyle, AColor);
-      TopStyles.Add(AStyle);
-      TopColors.Add(AColor);
-      ParseSide(BorderXml, 'right', AStyle, AColor);
-      RightStyles.Add(AStyle);
-      RightColors.Add(AColor);
-      ParseSide(BorderXml, 'bottom', AStyle, AColor);
-      BottomStyles.Add(AStyle);
-      BottomColors.Add(AColor);
-      ParseSide(BorderXml, 'left', AStyle, AColor);
-      LeftStyles.Add(AStyle);
-      LeftColors.Add(AColor);
+      ParseBorderSide(Border.Inner, Prefix, 'top', SideStyle, SideColor);
+      TopStyles.Add(SideStyle);
+      TopColors.Add(SideColor);
+      ParseBorderSide(Border.Inner, Prefix, 'right', SideStyle, SideColor);
+      RightStyles.Add(SideStyle);
+      RightColors.Add(SideColor);
+      ParseBorderSide(Border.Inner, Prefix, 'bottom', SideStyle, SideColor);
+      BottomStyles.Add(SideStyle);
+      BottomColors.Add(SideColor);
+      ParseBorderSide(Border.Inner, Prefix, 'left', SideStyle, SideColor);
+      LeftStyles.Add(SideStyle);
+      LeftColors.Add(SideColor);
     end;
 
-    const CellXfsMatch = TRegEx.Match(Xml, '<cellXfs[^>]*>(.*?)</cellXfs>', [roIgnoreCase, roSingleLine]);
-    if CellXfsMatch.Success then
+    var CellXfs: TXmlElement;
+    if TXml.TryFindElement(Xml, Prefix + 'cellXfs', CellXfs) then
     begin
-      const CellXfsXml = CellXfsMatch.Groups[1].Value;
-      const XfMatches = TRegEx.Matches(CellXfsXml, '<xf\s[^/>]*(?:/>|(?:[^>]*>.*?</xf>))', [roIgnoreCase, roSingleLine]);
-      for var Match in XfMatches do
+      for var Xf in TXml.FindElements(CellXfs.Inner, Prefix + 'xf') do
       begin
-        const XfXml = Match.Value;
-
-        const NumFmtIdMatch = TRegEx.Match(XfXml, 'numFmtId="(\d+)"', [roIgnoreCase]);
-        var NumFmtId := 0;
-        if NumFmtIdMatch.Success then
-          NumFmtId := StrToIntDef(NumFmtIdMatch.Groups[1].Value, 0);
+        const NumFmtId = StrToIntDef(Xf.Attribute('numFmtId'), 0);
 
         var CustomFormatCode: string;
         if IsBuiltInDateNumFmtId(NumFmtId) then
@@ -471,20 +459,9 @@ begin
           FStyleNumberFormat.Add(BuiltInFormatCode(NumFmtId));
         end;
 
-        const FontIdMatch = TRegEx.Match(XfXml, 'fontId="(\d+)"', [roIgnoreCase]);
-        var FontId := 0;
-        if FontIdMatch.Success then
-          FontId := StrToIntDef(FontIdMatch.Groups[1].Value, 0);
-
-        const FillIdMatch = TRegEx.Match(XfXml, 'fillId="(\d+)"', [roIgnoreCase]);
-        var FillId := 0;
-        if FillIdMatch.Success then
-          FillId := StrToIntDef(FillIdMatch.Groups[1].Value, 0);
-
-        const BorderIdMatch = TRegEx.Match(XfXml, 'borderId="(\d+)"', [roIgnoreCase]);
-        var BorderId := 0;
-        if BorderIdMatch.Success then
-          BorderId := StrToIntDef(BorderIdMatch.Groups[1].Value, 0);
+        const FontId   = StrToIntDef(Xf.Attribute('fontId'), 0);
+        const FillId   = StrToIntDef(Xf.Attribute('fillId'), 0);
+        const BorderId = StrToIntDef(Xf.Attribute('borderId'), 0);
 
         FStyleBold.Add((FontId < FontsBold.Count) and (FontsBold[FontId]));
         FStyleItalic.Add((FontId < FontsItalic.Count) and (FontsItalic[FontId]));
@@ -547,21 +524,16 @@ begin
         else
           FStyleBorderLeftColor.Add(0);
 
-        const AlignMatch = TRegEx.Match(XfXml, '<alignment([^/]*)/>', [roIgnoreCase]);
-        if AlignMatch.Success then
+        var Alignment: TXmlElement;
+        if TXml.TryFindElement(Xf.Inner, Prefix + 'alignment', Alignment) then
         begin
-          const AlignXml = AlignMatch.Groups[1].Value;
-          const HMatch = TRegEx.Match(AlignXml, 'horizontal="([^"]*)"', [roIgnoreCase]);
-          if HMatch.Success then
-            FStyleHAlign.Add(StringToHAlign(HMatch.Groups[1].Value))
-          else
-            FStyleHAlign.Add(TExcelHAlign.None);
-          const VMatch = TRegEx.Match(AlignXml, 'vertical="([^"]*)"', [roIgnoreCase]);
-          if VMatch.Success then
-            FStyleVAlign.Add(StringToVAlign(VMatch.Groups[1].Value))
-          else
-            FStyleVAlign.Add(TExcelVAlign.None);
-          FStyleWrapText.Add(Pos('wrapText="1"', AlignXml) > 0);
+          const Horizontal = Alignment.Attribute('horizontal');
+          const Vertical   = Alignment.Attribute('vertical');
+          const WrapText   = Alignment.Attribute('wrapText');
+
+          FStyleHAlign.Add(StringToHAlign(Horizontal));
+          FStyleVAlign.Add(StringToVAlign(Vertical));
+          FStyleWrapText.Add(TXml.BooleanOf(WrapText, False));
         end
         else
         begin
@@ -590,6 +562,105 @@ begin
     FontsItalic.Free;
     FontsBold.Free;
   end;
+end;
+
+// The ElementName children of the first ContainerName element. Scoping to the
+// container keeps, for example, the fonts of differential formats (dxfs) out of
+// the font table that cell formats index into.
+function TExcelWorkbookReader.ElementsIn(const Xml, ContainerName, ElementName: string): TArray<TXmlElement>;
+begin
+  var Container: TXmlElement;
+  if TXml.TryFindElement(Xml, ContainerName, Container) then
+    Result := TXml.FindElements(Container.Inner, ElementName)
+  else
+    Result := [];
+end;
+
+function TExcelWorkbookReader.ChildAttribute(const Xml, ElementName, AttributeName: string): string;
+begin
+  var Element: TXmlElement;
+  if TXml.TryFindElement(Xml, ElementName, Element) then
+    Result := Element.Attribute(AttributeName)
+  else
+    Result := '';
+end;
+
+// A font flag such as <b/> is on when present, unless its val switches it off:
+// openpyxl writes <b val="1"/>, and <u val="none"/> means no underline.
+function TExcelWorkbookReader.IsFontFlagSet(const FontXml, ElementName: string): Boolean;
+begin
+  var Flag: TXmlElement;
+  if not TXml.TryFindElement(FontXml, ElementName, Flag) then
+    Exit(False);
+
+  const Value = Flag.Attribute('val');
+  Result := (Value <> 'none') and TXml.BooleanOf(Value, True);
+end;
+
+function TExcelWorkbookReader.ColorOf(const Xml, ElementName: string): Cardinal;
+begin
+  const Rgb = ChildAttribute(Xml, ElementName, 'rgb');
+  Result := RgbOf(Rgb);
+end;
+
+// An ARGB value as RRGGBB. Excel ignores the alpha byte of cell colours, and
+// writers differ in what they put there (Excel FF, openpyxl 00).
+function TExcelWorkbookReader.RgbOf(const ArgbValue: string): Cardinal;
+begin
+  const RgbLength = 6;
+  const IsTooShort = (Length(ArgbValue) < RgbLength);
+  if IsTooShort then
+    Exit(0);
+
+  const RgbDigits = Copy(ArgbValue, Length(ArgbValue) - RgbLength + 1, RgbLength);
+  Result := StrToInt64Def('$' + RgbDigits, 0);
+end;
+
+function TExcelWorkbookReader.FillColorOf(const FillXml, Prefix: string;
+                                          const IndexedPalette: TList<Cardinal>): Cardinal;
+begin
+  var ForegroundColor: TXmlElement;
+  if not TXml.TryFindElement(FillXml, Prefix + 'fgColor', ForegroundColor) then
+    Exit(0);
+
+  const Rgb = ForegroundColor.Attribute('rgb');
+  if not Rgb.IsEmpty then
+  begin
+    Result := RgbOf(Rgb);
+    Exit;
+  end;
+
+  const PaletteIndex = StrToIntDef(ForegroundColor.Attribute('indexed'), -1);
+  const IsInPalette = (PaletteIndex >= 0) and (PaletteIndex < IndexedPalette.Count);
+  if IsInPalette then
+    Result := IndexedPalette[PaletteIndex]
+  else
+    Result := 0;
+end;
+
+procedure TExcelWorkbookReader.ParseBorderSide(const BorderXml, Prefix, SideName: string;
+                                               out SideStyle: TExcelBorderStyle; out SideColor: Cardinal);
+begin
+  SideStyle := TExcelBorderStyle.None;
+  SideColor := 0;
+
+  var Side: TXmlElement;
+  if not TXml.TryFindElement(BorderXml, Prefix + SideName, Side) then
+    Exit;
+
+  SideStyle := StringToBorderStyle(Side.Attribute('style'));
+  SideColor := ColorOf(Side.Inner, Prefix + 'color');
+end;
+
+function TExcelWorkbookReader.StringToBorderStyle(const Value: string): TExcelBorderStyle;
+begin
+  if Value = 'thin' then Result := TExcelBorderStyle.Thin
+  else if Value = 'medium' then Result := TExcelBorderStyle.Medium
+  else if Value = 'thick' then Result := TExcelBorderStyle.Thick
+  else if Value = 'dashed' then Result := TExcelBorderStyle.Dashed
+  else if Value = 'dotted' then Result := TExcelBorderStyle.Dotted
+  else if Value = 'double' then Result := TExcelBorderStyle.Double
+  else Result := TExcelBorderStyle.None;
 end;
 
 function TExcelWorkbookReader.AdjustFormulaRefs(const Formula: string; const RowDelta, ColDelta: Integer): string;
@@ -647,332 +718,332 @@ end;
 
 procedure TExcelWorkbookReader.ParseComments(const Sheet: TExcelSheet; const Xml: string);
 begin
-  const CommentMatches = TRegEx.Matches(Xml, '<comment\s+ref="([^"]+)"[^>]*>(.*?)</comment>', [roIgnoreCase, roSingleLine]);
-  for var Match in CommentMatches do
+  // A note's text can be split across multiple <r><t>...</t></r> runs (e.g. if a
+  // run has different formatting), which are concatenated. Rich per-run formatting
+  // itself is not preserved -- out of scope for plain-text notes.
+  const Prefix = TXml.PrefixOf(Xml, NsSpreadsheetML);
+  for var Comment in TXml.FindElements(Xml, Prefix + 'comment') do
   begin
-    const Address = Match.Groups[1].Value;
-    const CommentBody = Match.Groups[2].Value;
-    var Text := '';
-    // Mirrors ParseSharedStrings' <t> extraction: a note's text can be split across
-    // multiple <r><t>...</t></r> runs (e.g. if a run has different formatting), which
-    // are concatenated. Rich per-run formatting itself is not preserved -- out of scope
-    // for plain-text notes.
-    const TextMatches = TRegEx.Matches(CommentBody, '<t(?:\s[^>]*)?>([^<]*)</t>', [roIgnoreCase]);
-    for var TextMatch in TextMatches do
-      if TextMatch.Groups.Count > 1 then
-        Text := Text + TXml.Unescape(TextMatch.Groups[1].Value);
-    Sheet.SetNote(Address, Text);
+    const Text = RichTextOf(Comment.Inner, Prefix);
+    Sheet.SetNote(Comment.Attribute('ref'), Text);
   end;
 end;
 
 procedure TExcelWorkbookReader.ParseSheet(const Sheet: TExcelSheet; const Xml: string);
 begin
-  const PaneMatch = TRegEx.Match(Xml, '<pane\s+[^/]*/>', [roIgnoreCase]);
-  if PaneMatch.Success then
+  const Prefix = TXml.PrefixOf(Xml, NsSpreadsheetML);
+
+  ParseFrozenPane(Sheet, Xml, Prefix);
+  ParseColumnWidths(Sheet, Xml, Prefix);
+  ParseSheetData(Sheet, Xml, Prefix);
+  ParseMergedCells(Sheet, Xml, Prefix);
+end;
+
+procedure TExcelWorkbookReader.ParseFrozenPane(const Sheet: TExcelSheet; const Xml, Prefix: string);
+begin
+  var Pane: TXmlElement;
+  if not TXml.TryFindElement(Xml, Prefix + 'pane', Pane) then
+    Exit;
+
+  // Only a frozen pane encodes xSplit/ySplit as whole row/column counts. An unfrozen
+  // "split" pane stores the split-bar position in twentieths of a point (e.g. 2160), so
+  // reading that as a frozen count would be meaningless -- skip anything whose state is
+  // not frozen or frozenSplit.
+  const State = Pane.Attribute('state');
+  const IsFrozen = (SameText(State, 'frozen') or SameText(State, 'frozenSplit'));
+  if not IsFrozen then
+    Exit;
+
+  var Split: string;
+  if TXml.TryGetAttribute(Pane.OpenTag, 'xSplit', Split) then
+    Sheet.SetFrozenColumns(SplitCountOf(Split));
+  if TXml.TryGetAttribute(Pane.OpenTag, 'ySplit', Split) then
+    Sheet.SetFrozenRows(SplitCountOf(Split));
+end;
+
+function TExcelWorkbookReader.SplitCountOf(const Split: string): Integer;
+begin
+  const SplitPosition = StrToFloatDef(Split, 0, TFormatSettings.Invariant);
+  Result := Trunc(SplitPosition);
+end;
+
+procedure TExcelWorkbookReader.ParseColumnWidths(const Sheet: TExcelSheet; const Xml, Prefix: string);
+begin
+  for var Column in TXml.FindElements(Xml, Prefix + 'col') do
   begin
-    const PaneXml = PaneMatch.Value;
-    // Only a frozen pane encodes xSplit/ySplit as whole row/column counts. An unfrozen
-    // "split" pane stores the split-bar position in twentieths of a point (e.g. 2160), so
-    // reading that as a frozen count would be meaningless -- skip anything whose state is
-    // not frozen or frozenSplit.
-    const StateMatch = TRegEx.Match(PaneXml, 'state="([^"]*)"', [roIgnoreCase]);
-    const IsFrozen = StateMatch.Success and
-      (SameText(StateMatch.Groups[1].Value, 'frozen') or SameText(StateMatch.Groups[1].Value, 'frozenSplit'));
-    if IsFrozen then
+    const IsCustomWidth = TXml.BooleanOf(Column.Attribute('customWidth'), False);
+    const Width = StrToFloatDef(Column.Attribute('width'), 0, TFormatSettings.Invariant);
+    const HasCustomWidth = (IsCustomWidth and (Width > 0));
+    if not HasCustomWidth then
+      Continue;
+
+    const FirstColumn = StrToIntDef(Column.Attribute('min'), 0);
+    const LastColumn = StrToIntDef(Column.Attribute('max'), 0);
+    for var ColumnNumber := FirstColumn to LastColumn do
     begin
-      const XSplitMatch = TRegEx.Match(PaneXml, 'xSplit="([^"]*)"', [roIgnoreCase]);
-      const YSplitMatch = TRegEx.Match(PaneXml, 'ySplit="([^"]*)"', [roIgnoreCase]);
-      if XSplitMatch.Success then
-        Sheet.SetFrozenColumns(Trunc(StrToFloatDef(XSplitMatch.Groups[1].Value, 0, TFormatSettings.Invariant)));
-      if YSplitMatch.Success then
-        Sheet.SetFrozenRows(Trunc(StrToFloatDef(YSplitMatch.Groups[1].Value, 0, TFormatSettings.Invariant)));
+      const ColumnLetters = TExcelSheet.ColumnNumberToLetters(ColumnNumber);
+      Sheet.SetColumnWidth(ColumnLetters, Width);
     end;
   end;
+end;
 
-  const ColMatches = TRegEx.Matches(Xml, '<col\s[^/]*/>', [roIgnoreCase]);
-  for var ColMatch in ColMatches do
-  begin
-    const ColXml = ColMatch.Value;
-    const WidthMatch = TRegEx.Match(ColXml, 'width="([^"]*)"', [roIgnoreCase]);
-    const CustomMatch = TRegEx.Match(ColXml, 'customWidth="1"', [roIgnoreCase]);
-    if WidthMatch.Success and CustomMatch.Success then
-    begin
-      const Width = StrToFloatDef(WidthMatch.Groups[1].Value, 0, TFormatSettings.Invariant);
-      if Width > 0 then
-      begin
-        const MinMatch = TRegEx.Match(ColXml, 'min="(\d+)"', [roIgnoreCase]);
-        const MaxMatch = TRegEx.Match(ColXml, 'max="(\d+)"', [roIgnoreCase]);
-        const ColMin = StrToIntDef(MinMatch.Groups[1].Value, 0);
-        const ColMax = StrToIntDef(MaxMatch.Groups[1].Value, 0);
-        for var ColNum := ColMin to ColMax do
-        begin
-          const ColLetters = TExcelSheet.ColumnNumberToLetters(ColNum);
-          Sheet.SetColumnWidth(ColLetters, Width);
-        end;
-      end;
-    end;
-  end;
+// Cells are read in two passes: a dependent shared-formula cell only names the
+// shared formula by its si index, so every master cell (<f t="shared" si="N"
+// ref="...">formula</f>) has to be known before the dependents can be resolved.
+procedure TExcelWorkbookReader.ParseSheetData(const Sheet: TExcelSheet; const Xml, Prefix: string);
+begin
+  var SheetData: TXmlElement;
+  if not TXml.TryFindElement(Xml, Prefix + 'sheetData', SheetData) then
+    Exit;
 
-  const RowMatches = TRegEx.Matches(Xml, '<row\s[^>]*>', [roIgnoreCase]);
-  for var RowMatch in RowMatches do
-  begin
-    const RowXml = RowMatch.Value;
-    const HtMatch = TRegEx.Match(RowXml, 'ht="([^"]*)"', [roIgnoreCase]);
-    const CustomMatch = TRegEx.Match(RowXml, 'customHeight="1"', [roIgnoreCase]);
-    if (HtMatch.Success) and (CustomMatch.Success) then
-    begin
-      const RowNumMatch = TRegEx.Match(RowXml, 'r="(\d+)"', [roIgnoreCase]);
-      if RowNumMatch.Success then
-      begin
-        const RowNum = StrToIntDef(RowNumMatch.Groups[1].Value, 0);
-        const RowHt = StrToFloatDef(HtMatch.Groups[1].Value, 0, TFormatSettings.Invariant);
-        if (RowNum > 0) and (RowHt > 0) then
-          Sheet.SetRowHeight(RowNum, RowHt);
-      end;
-    end;
-  end;
-
-  // Build a map of shared formula index -> (masterAddress, formulaString).
-  // Excel writes shared formulas as <f t="shared" si="N" ref="...">formula</f> on the
-  // master cell and <f t="shared" si="N"/> (self-closing, no text) on the dependent cells.
-  // We need the master address to compute row/column offsets for relative-reference adjustment.
-  var SharedFormulas := TDictionary<Integer, TPair<string, string>>.Create;
+  var Cells := TList<TCellXml>.Create;
+  var SharedFormulas := TSharedFormulas.Create;
   try
-    // Each master cell is <c r="ADDR">...<f ... si="N">formula</f>...</c>. The (?<!/)> guard
-    // (same as in CellMatches below) skips self-closing <c .../> cells: without it the content
-    // scan runs past every following cell looking for a </c> and overflows the regex stack.
-    const SharedMasterMatches = TRegEx.Matches(Xml,
-      '<c\s+r="([A-Z]+\d+)"[^>]*(?<!/)>(?:(?!</c>).)*<f\s[^>]*\bsi="(\d+)"[^>]*>([^<]+)</f>',
-      [roIgnoreCase, roSingleLine]);
-    for var SfMatch in SharedMasterMatches do
-      if SfMatch.Groups.Count > 3 then
-      begin
-        const SiIdx = StrToIntDef(SfMatch.Groups[2].Value, -1);
-        if SiIdx >= 0 then
-          SharedFormulas.AddOrSetValue(SiIdx,
-            TPair<string, string>.Create(SfMatch.Groups[1].Value, TXml.Unescape(SfMatch.Groups[3].Value)));
-      end;
+    ReadRows(Sheet, SheetData.Inner, Prefix, Cells);
+    CollectSharedFormulas(Cells, SharedFormulas);
 
-    // Match each cell element. Self-closing <c r=".."/> empty cells are excluded via
-    // (?<!/)> so they cannot steal <v> values from adjacent cells. (?:(?!</c>).)*
-    // prevents crossing cell boundaries before reaching <v>.
-    // The <f> element may have attributes (e.g. t="shared" si="0"), so we use
-    // <f[^>]*> for the opening tag. Self-closing <f.../> cells have an empty formula
-    // text; the si index is extracted separately for shared-formula dependent-cell resolution.
-    // The <v> element is optional: a formula may come without a cached value.
-    // Group layout: 1=address, 2=style, 3=cell-type, 4=formula-text, 5=si-index, 6=value.
-    const CellMatches = TRegEx.Matches(Xml,
-      '<c\s+r="([A-Z]+\d+)"(?:\s+s="(\d+)")?(?:\s+t="([^"]*)")?[^>]*(?<!/)>' +
-      '(?:<f(?:\s+[^>]*)?>([^<]*)</f>|<f(?:\s+[^>]*)?\bsi="(\d+)"[^/]*/>)?' +
-      '(?:(?:(?!</c>).)*?<v>([^<]*)</v>)?.*?</c>',[roIgnoreCase, roSingleLine]);
-    for var Match in CellMatches do
+    for var CellXml in Cells do
     begin
-      if HoldsCellContent(Match) then
-      begin
-        const Address = Match.Groups[1].Value;
-        const StyleIdx = StrToIntDef(MatchGroup(Match, 2), 0);
-        const CellType = MatchGroup(Match, 3);
-        var   Formula: string := TXml.Unescape(MatchGroup(Match, 4));
-        const SiIndex  = MatchGroup(Match, 5);
-        const Value    = MatchGroup(Match, 6);
-
-        // Dependent shared-formula cells have an empty formula text but carry a si index.
-        // Resolve and adjust the formula string from the shared formula map.
-        if (Formula = '') and (SiIndex <> '') then
-        begin
-          const SiIdx = StrToIntDef(SiIndex, -1);
-          var MasterInfo: TPair<string, string>;
-          if (SiIdx >= 0) and SharedFormulas.TryGetValue(SiIdx, MasterInfo) then
-          begin
-            // Compute row and column offsets from master cell to this dependent cell.
-            const MasterAddr = MasterInfo.Key;
-            const MasterFormula = MasterInfo.Value;
-            var MasterCol := '';
-            var MasterRowStr := '';
-            for var Ch in MasterAddr do
-              if CharInSet(Ch, ['A'..'Z', 'a'..'z']) then MasterCol := MasterCol + Ch
-              else MasterRowStr := MasterRowStr + Ch;
-            var DependentCol := '';
-            var DependentRowStr := '';
-            for var Ch in Address do
-              if CharInSet(Ch, ['A'..'Z', 'a'..'z']) then DependentCol := DependentCol + Ch
-              else DependentRowStr := DependentRowStr + Ch;
-            const RowDelta = StrToIntDef(DependentRowStr, 0) - StrToIntDef(MasterRowStr, 0);
-            const ColDelta = TExcelSheet.ColumnLetterToNumber(DependentCol) -
-                             TExcelSheet.ColumnLetterToNumber(MasterCol);
-            Formula := AdjustFormulaRefs(MasterFormula, RowDelta, ColDelta);
-          end;
-        end;
-
-        var Cell: TExcelCell := nil;
-
-        if Formula <> '' then
-        begin
-          const ValueType = TCachedValueType.FromCellTypeAttribute(CellType);
-          Sheet.SetCellFormula(Address, Formula, Value, ValueType);
-          Cell := Sheet.GetCell(Address) as TExcelCell;
-        end
-        else if CellType = 's' then
-        begin
-          const StrIndex = StrToIntDef(Value, -1);
-          if (StrIndex >= 0) and (StrIndex < FSharedStrings.Count) then
-          begin
-            Sheet.SetCellValue(Address, FSharedStrings[StrIndex], True);
-            Cell := Sheet.GetCell(Address) as TExcelCell;
-          end;
-        end
-        else if CellType = InlineStringCellType then
-        begin
-          Sheet.SetCellValue(Address, InlineStringOf(Match.Value), True);
-          Cell := Sheet.GetCell(Address) as TExcelCell;
-        end
-        else if CellType = 'b' then
-        begin
-          Sheet.SetBooleanValue(Address, Value = '1');
-          Cell := Sheet.GetCell(Address) as TExcelCell;
-        end
-        else
-        begin
-          if (StyleIdx > 0) and (StyleIdx < FStyleIsDate.Count) and FStyleIsDate[StyleIdx] then
-            Sheet.SetDateTimeValue(Address, StrToFloatDef(Value, 0, TFormatSettings.Invariant))
-          else
-            Sheet.SetCellValue(Address, Value, False);
-          Cell := Sheet.GetCell(Address) as TExcelCell;
-        end;
-
-        if (Cell <> nil) and (StyleIdx > 0) then
-        begin
-          if (StyleIdx < FStyleBold.Count) and (FStyleBold[StyleIdx]) then
-            Cell.SetBold(True);
-          if (StyleIdx < FStyleItalic.Count) and (FStyleItalic[StyleIdx]) then
-            Cell.SetItalic(True);
-          if (StyleIdx < FStyleUnderline.Count) and (FStyleUnderline[StyleIdx]) then
-            Cell.SetUnderline(True);
-          if (StyleIdx < FStyleFontName.Count) and (FStyleFontName[StyleIdx] <> '') then
-            Cell.SetFontName(FStyleFontName[StyleIdx]);
-          if (StyleIdx < FStyleFontSize.Count) and (FStyleFontSize[StyleIdx] <> 0) then
-            Cell.SetFontSize(FStyleFontSize[StyleIdx]);
-          if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
-            Cell.SetBackgroundColor(FStyleColors[StyleIdx]);
-          if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
-            Cell.SetFontColor(FStyleFontColor[StyleIdx]);
-          if (StyleIdx < FStyleStrikeout.Count) and (FStyleStrikeout[StyleIdx]) then
-            Cell.SetStrikeout(True);
-          if (StyleIdx < FStyleBorderTopStyle.Count) and (FStyleBorderTopStyle[StyleIdx] <> TExcelBorderStyle.None) then
-            Cell.SetBorderStyle([TExcelBorderSide.Top], FStyleBorderTopStyle[StyleIdx]);
-          if (StyleIdx < FStyleBorderTopColor.Count) and (FStyleBorderTopColor[StyleIdx] <> 0) then
-            Cell.SetBorderColor([TExcelBorderSide.Top], FStyleBorderTopColor[StyleIdx]);
-          if (StyleIdx < FStyleBorderRightStyle.Count) and (FStyleBorderRightStyle[StyleIdx] <> TExcelBorderStyle.None) then
-            Cell.SetBorderStyle([TExcelBorderSide.Right], FStyleBorderRightStyle[StyleIdx]);
-          if (StyleIdx < FStyleBorderRightColor.Count) and (FStyleBorderRightColor[StyleIdx] <> 0) then
-            Cell.SetBorderColor([TExcelBorderSide.Right], FStyleBorderRightColor[StyleIdx]);
-          if (StyleIdx < FStyleBorderBottomStyle.Count) and (FStyleBorderBottomStyle[StyleIdx] <> TExcelBorderStyle.None) then
-            Cell.SetBorderStyle([TExcelBorderSide.Bottom], FStyleBorderBottomStyle[StyleIdx]);
-          if (StyleIdx < FStyleBorderBottomColor.Count) and (FStyleBorderBottomColor[StyleIdx] <> 0) then
-            Cell.SetBorderColor([TExcelBorderSide.Bottom], FStyleBorderBottomColor[StyleIdx]);
-          if (StyleIdx < FStyleBorderLeftStyle.Count) and (FStyleBorderLeftStyle[StyleIdx] <> TExcelBorderStyle.None) then
-            Cell.SetBorderStyle([TExcelBorderSide.Left], FStyleBorderLeftStyle[StyleIdx]);
-          if (StyleIdx < FStyleBorderLeftColor.Count) and (FStyleBorderLeftColor[StyleIdx] <> 0) then
-            Cell.SetBorderColor([TExcelBorderSide.Left], FStyleBorderLeftColor[StyleIdx]);
-          if (StyleIdx < FStyleHAlign.Count) and (FStyleHAlign[StyleIdx] <> TExcelHAlign.None) then
-            Cell.SetHAlign(FStyleHAlign[StyleIdx]);
-          if (StyleIdx < FStyleVAlign.Count) and (FStyleVAlign[StyleIdx] <> TExcelVAlign.None) then
-            Cell.SetVAlign(FStyleVAlign[StyleIdx]);
-          if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
-            Cell.SetWrapText(True);
-          if (StyleIdx < FStyleNumberFormat.Count) and (FStyleNumberFormat[StyleIdx] <> '') then
-            Cell.SetNumberFormat(FStyleNumberFormat[StyleIdx]);
-        end;
-      end;
+      ApplyCell(Sheet, CellXml, SharedFormulas);
     end;
   finally
     SharedFormulas.Free;
+    Cells.Free;
+  end;
+end;
+
+// The r attributes of rows and cells are optional: a row without one follows
+// the previous row, and a cell without one takes the next column of its row.
+procedure TExcelWorkbookReader.ReadRows(const Sheet: TExcelSheet; const SheetDataXml, Prefix: string;
+                                        const Cells: TList<TCellXml>);
+begin
+  var RowNumber := 0;
+  for var Row in TXml.FindElements(SheetDataXml, Prefix + 'row') do
+  begin
+    RowNumber := StrToIntDef(Row.Attribute('r'), RowNumber + 1);
+    ApplyRowHeight(Sheet, Row, RowNumber);
+
+    var ColumnNumber := 0;
+    for var CellElement in TXml.FindElements(Row.Inner, Prefix + 'c') do
+    begin
+      var Address := CellElement.Attribute('r');
+      if Address.IsEmpty then
+        Address := TExcelSheet.ColumnNumberToLetters(ColumnNumber + 1) + IntToStr(RowNumber);
+
+      ColumnNumber := ColumnNumberOf(Address);
+      Cells.Add(CellXmlOf(CellElement, Address, Prefix));
+    end;
+  end;
+end;
+
+procedure TExcelWorkbookReader.ApplyRowHeight(const Sheet: TExcelSheet; const Row: TXmlElement;
+                                              const RowNumber: Integer);
+begin
+  const IsCustomHeight = TXml.BooleanOf(Row.Attribute('customHeight'), False);
+  const Height = StrToFloatDef(Row.Attribute('ht'), 0, TFormatSettings.Invariant);
+  const HasCustomHeight = (IsCustomHeight and (RowNumber > 0) and (Height > 0));
+  if HasCustomHeight then
+    Sheet.SetRowHeight(RowNumber, Height);
+end;
+
+function TExcelWorkbookReader.ColumnNumberOf(const Address: string): Integer;
+begin
+  var Letters := '';
+  for var Symbol in Address do
+  begin
+    if CharInSet(Symbol, ['A'..'Z', 'a'..'z']) then
+      Letters := Letters + Symbol;
   end;
 
-  // Apply styles to self-closing empty cells (<c r="X" s="N"/>).
-  // These have no <v> element so the main cell loop skips them, but they may
-  // carry a meaningful style (e.g. background colour) that must be preserved.
-  const EmptyCellMatches = TRegEx.Matches(Xml,
-    '<c\s+r="([A-Z]+\d+)"\s+s="(\d+)"[^>]*/>', [roIgnoreCase]);
-  for var Match in EmptyCellMatches do
-    if Match.Groups.Count > 2 then
+  Result := TExcelSheet.ColumnLetterToNumber(Letters);
+end;
+
+function TExcelWorkbookReader.CellXmlOf(const Element: TXmlElement; const Address, Prefix: string): TCellXml;
+begin
+  Result.Address := Address;
+  Result.StyleIndex := StrToIntDef(Element.Attribute('s'), 0);
+  Result.CellType := Element.Attribute('t');
+  Result.Formula := '';
+  Result.SharedFormulaIndex := -1;
+  Result.Value := '';
+  Result.InlineText := '';
+
+  var Formula: TXmlElement;
+  if TXml.TryFindElement(Element.Inner, Prefix + 'f', Formula) then
+  begin
+    Result.Formula := TXml.Unescape(Formula.Inner);
+    Result.SharedFormulaIndex := StrToIntDef(Formula.Attribute('si'), -1);
+  end;
+
+  var Value: TXmlElement;
+  Result.HasValue := TXml.TryFindElement(Element.Inner, Prefix + 'v', Value);
+  if Result.HasValue then
+    Result.Value := TXml.Unescape(Value.Inner);
+
+  if Result.CellType = InlineStringCellType then
+    Result.InlineText := InlineStringOf(Element.Inner, Prefix);
+end;
+
+procedure TExcelWorkbookReader.CollectSharedFormulas(const Cells: TList<TCellXml>;
+                                                     const SharedFormulas: TSharedFormulas);
+begin
+  for var CellXml in Cells do
+  begin
+    const IsSharedFormulaMaster = ((CellXml.SharedFormulaIndex >= 0) and (CellXml.Formula <> ''));
+    if IsSharedFormulaMaster then
+      SharedFormulas.AddOrSetValue(CellXml.SharedFormulaIndex,
+                                   TPair<string, string>.Create(CellXml.Address, CellXml.Formula));
+  end;
+end;
+
+// A cell without content still matters when it carries a style the workbook
+// defines, such as a background colour on an otherwise empty cell.
+procedure TExcelWorkbookReader.ApplyCell(const Sheet: TExcelSheet; const CellXml: TCellXml;
+                                         const SharedFormulas: TSharedFormulas);
+begin
+  const IsStyled = ((CellXml.StyleIndex > 0) and (CellXml.StyleIndex < FStyleBold.Count));
+
+  if not CellXml.HoldsContent then
+  begin
+    if IsStyled then
     begin
-      const Address  = Match.Groups[1].Value;
-      const StyleIdx = StrToIntDef(Match.Groups[2].Value, 0);
-      if StyleIdx > 0 then
-      begin
-        var Cell := Sheet.GetCell(Address) as TExcelCell;
-        if (StyleIdx < FStyleBold.Count) and (FStyleBold[StyleIdx]) then
-          Cell.SetBold(True);
-        if (StyleIdx < FStyleItalic.Count) and (FStyleItalic[StyleIdx]) then
-          Cell.SetItalic(True);
-        if (StyleIdx < FStyleUnderline.Count) and (FStyleUnderline[StyleIdx]) then
-          Cell.SetUnderline(True);
-        if (StyleIdx < FStyleFontName.Count) and (FStyleFontName[StyleIdx] <> '') then
-          Cell.SetFontName(FStyleFontName[StyleIdx]);
-        if (StyleIdx < FStyleFontSize.Count) and (FStyleFontSize[StyleIdx] <> 0) then
-          Cell.SetFontSize(FStyleFontSize[StyleIdx]);
-        if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
-          Cell.SetBackgroundColor(FStyleColors[StyleIdx]);
-        if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
-          Cell.SetFontColor(FStyleFontColor[StyleIdx]);
-        if (StyleIdx < FStyleStrikeout.Count) and (FStyleStrikeout[StyleIdx]) then
-          Cell.SetStrikeout(True);
-        if (StyleIdx < FStyleBorderTopStyle.Count) and (FStyleBorderTopStyle[StyleIdx] <> TExcelBorderStyle.None) then
-          Cell.SetBorderStyle([TExcelBorderSide.Top], FStyleBorderTopStyle[StyleIdx]);
-        if (StyleIdx < FStyleBorderTopColor.Count) and (FStyleBorderTopColor[StyleIdx] <> 0) then
-          Cell.SetBorderColor([TExcelBorderSide.Top], FStyleBorderTopColor[StyleIdx]);
-        if (StyleIdx < FStyleBorderRightStyle.Count) and (FStyleBorderRightStyle[StyleIdx] <> TExcelBorderStyle.None) then
-          Cell.SetBorderStyle([TExcelBorderSide.Right], FStyleBorderRightStyle[StyleIdx]);
-        if (StyleIdx < FStyleBorderRightColor.Count) and (FStyleBorderRightColor[StyleIdx] <> 0) then
-          Cell.SetBorderColor([TExcelBorderSide.Right], FStyleBorderRightColor[StyleIdx]);
-        if (StyleIdx < FStyleBorderBottomStyle.Count) and (FStyleBorderBottomStyle[StyleIdx] <> TExcelBorderStyle.None) then
-          Cell.SetBorderStyle([TExcelBorderSide.Bottom], FStyleBorderBottomStyle[StyleIdx]);
-        if (StyleIdx < FStyleBorderBottomColor.Count) and (FStyleBorderBottomColor[StyleIdx] <> 0) then
-          Cell.SetBorderColor([TExcelBorderSide.Bottom], FStyleBorderBottomColor[StyleIdx]);
-        if (StyleIdx < FStyleBorderLeftStyle.Count) and (FStyleBorderLeftStyle[StyleIdx] <> TExcelBorderStyle.None) then
-          Cell.SetBorderStyle([TExcelBorderSide.Left], FStyleBorderLeftStyle[StyleIdx]);
-        if (StyleIdx < FStyleBorderLeftColor.Count) and (FStyleBorderLeftColor[StyleIdx] <> 0) then
-          Cell.SetBorderColor([TExcelBorderSide.Left], FStyleBorderLeftColor[StyleIdx]);
-        if (StyleIdx < FStyleHAlign.Count) and (FStyleHAlign[StyleIdx] <> TExcelHAlign.None) then
-          Cell.SetHAlign(FStyleHAlign[StyleIdx]);
-        if (StyleIdx < FStyleVAlign.Count) and (FStyleVAlign[StyleIdx] <> TExcelVAlign.None) then
-          Cell.SetVAlign(FStyleVAlign[StyleIdx]);
-        if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
-          Cell.SetWrapText(True);
-        if (StyleIdx < FStyleNumberFormat.Count) and (FStyleNumberFormat[StyleIdx] <> '') then
-          Cell.SetNumberFormat(FStyleNumberFormat[StyleIdx]);
-      end;
+      const EmptyCell = Sheet.GetCell(CellXml.Address) as TExcelCell;
+      ApplyCellStyle(EmptyCell, CellXml.StyleIndex);
     end;
+    Exit;
+  end;
 
-  const MergeMatches = TRegEx.Matches(Xml, '<mergeCell\s+ref="([^"]+)"', [roIgnoreCase]);
-  for var MergeMatch in MergeMatches do
-    if MergeMatch.Groups.Count > 1 then
-      Sheet.MergeCells(MergeMatch.Groups[1].Value);
+  const Cell = WriteCellValue(Sheet, CellXml, SharedFormulas);
+  if (Cell <> nil) and IsStyled then
+    ApplyCellStyle(Cell, CellXml.StyleIndex);
 end;
 
-function TExcelWorkbookReader.HoldsCellContent(const Match: TMatch): Boolean;
+function TExcelWorkbookReader.WriteCellValue(const Sheet: TExcelSheet; const CellXml: TCellXml;
+                                             const SharedFormulas: TSharedFormulas): TExcelCell;
 begin
-  // A cell match holds content when it carries <v>, a formula without a cached
-  // value, or an inline string, which keeps its text in <is> instead of <v>.
-  // A missing <v> shows as a lower group count.
-  Result := (Match.Groups.Count > 6) or (MatchGroup(Match, 4) <> '') or (MatchGroup(Match, 3) = InlineStringCellType);
-end;
+  const Address = CellXml.Address;
+  const StyleIdx = CellXml.StyleIndex;
+  const CellType = CellXml.CellType;
+  const Value = CellXml.Value;
 
-function TExcelWorkbookReader.MatchGroup(const Match: TMatch; const Index: Integer): string;
-begin
-  // TMatch lists only the groups up to the last one that took part in the
-  // match, so a trailing optional group may be absent altogether.
-  if Index < Match.Groups.Count then
-    Result := Match.Groups[Index].Value
+  var Formula := CellXml.Formula;
+  const IsSharedFormulaDependent = (Formula.IsEmpty and (CellXml.SharedFormulaIndex >= 0));
+  if IsSharedFormulaDependent then
+    Formula := ResolveSharedFormula(CellXml, SharedFormulas);
+
+  Result := nil;
+
+  if Formula <> '' then
+  begin
+    const ValueType = TCachedValueType.FromCellTypeAttribute(CellType);
+    Sheet.SetCellFormula(Address, Formula, Value, ValueType);
+    Result := Sheet.GetCell(Address) as TExcelCell;
+  end
+  else if CellType = 's' then
+  begin
+    const StrIndex = StrToIntDef(Value, -1);
+    if (StrIndex >= 0) and (StrIndex < FSharedStrings.Count) then
+    begin
+      Sheet.SetCellValue(Address, FSharedStrings[StrIndex], True);
+      Result := Sheet.GetCell(Address) as TExcelCell;
+    end;
+  end
+  else if CellType = InlineStringCellType then
+  begin
+    Sheet.SetCellValue(Address, CellXml.InlineText, True);
+    Result := Sheet.GetCell(Address) as TExcelCell;
+  end
+  else if CellType = 'b' then
+  begin
+    Sheet.SetBooleanValue(Address, Value = '1');
+    Result := Sheet.GetCell(Address) as TExcelCell;
+  end
   else
-    Result := '';
+  begin
+    if (StyleIdx > 0) and (StyleIdx < FStyleIsDate.Count) and FStyleIsDate[StyleIdx] then
+      Sheet.SetDateTimeValue(Address, StrToFloatDef(Value, 0, TFormatSettings.Invariant))
+    else
+      Sheet.SetCellValue(Address, Value, False);
+    Result := Sheet.GetCell(Address) as TExcelCell;
+  end;
+end;
+
+// Dependent shared-formula cells have an empty formula text but carry a si index.
+// The formula of the master cell is moved by the offset from master to dependent.
+function TExcelWorkbookReader.ResolveSharedFormula(const CellXml: TCellXml;
+                                                   const SharedFormulas: TSharedFormulas): string;
+begin
+  var Master: TPair<string, string>;
+  if not SharedFormulas.TryGetValue(CellXml.SharedFormulaIndex, Master) then
+    Exit('');
+
+  var MasterColumn, MasterRow: Integer;
+  var DependentColumn, DependentRow: Integer;
+  TExcelSheet.ParseCellAddress(Master.Key, MasterColumn, MasterRow);
+  TExcelSheet.ParseCellAddress(CellXml.Address, DependentColumn, DependentRow);
+
+  Result := AdjustFormulaRefs(Master.Value, DependentRow - MasterRow, DependentColumn - MasterColumn);
+end;
+
+procedure TExcelWorkbookReader.ApplyCellStyle(const Cell: TExcelCell; const StyleIdx: Integer);
+begin
+  if (StyleIdx < FStyleBold.Count) and (FStyleBold[StyleIdx]) then
+    Cell.SetBold(True);
+  if (StyleIdx < FStyleItalic.Count) and (FStyleItalic[StyleIdx]) then
+    Cell.SetItalic(True);
+  if (StyleIdx < FStyleUnderline.Count) and (FStyleUnderline[StyleIdx]) then
+    Cell.SetUnderline(True);
+  if (StyleIdx < FStyleFontName.Count) and (FStyleFontName[StyleIdx] <> '') then
+    Cell.SetFontName(FStyleFontName[StyleIdx]);
+  if (StyleIdx < FStyleFontSize.Count) and (FStyleFontSize[StyleIdx] <> 0) then
+    Cell.SetFontSize(FStyleFontSize[StyleIdx]);
+  if (StyleIdx < FStyleColors.Count) and (FStyleColors[StyleIdx] <> 0) then
+    Cell.SetBackgroundColor(FStyleColors[StyleIdx]);
+  if (StyleIdx < FStyleFontColor.Count) and (FStyleFontColor[StyleIdx] <> 0) then
+    Cell.SetFontColor(FStyleFontColor[StyleIdx]);
+  if (StyleIdx < FStyleStrikeout.Count) and (FStyleStrikeout[StyleIdx]) then
+    Cell.SetStrikeout(True);
+  if (StyleIdx < FStyleBorderTopStyle.Count) and (FStyleBorderTopStyle[StyleIdx] <> TExcelBorderStyle.None) then
+    Cell.SetBorderStyle([TExcelBorderSide.Top], FStyleBorderTopStyle[StyleIdx]);
+  if (StyleIdx < FStyleBorderTopColor.Count) and (FStyleBorderTopColor[StyleIdx] <> 0) then
+    Cell.SetBorderColor([TExcelBorderSide.Top], FStyleBorderTopColor[StyleIdx]);
+  if (StyleIdx < FStyleBorderRightStyle.Count) and (FStyleBorderRightStyle[StyleIdx] <> TExcelBorderStyle.None) then
+    Cell.SetBorderStyle([TExcelBorderSide.Right], FStyleBorderRightStyle[StyleIdx]);
+  if (StyleIdx < FStyleBorderRightColor.Count) and (FStyleBorderRightColor[StyleIdx] <> 0) then
+    Cell.SetBorderColor([TExcelBorderSide.Right], FStyleBorderRightColor[StyleIdx]);
+  if (StyleIdx < FStyleBorderBottomStyle.Count) and (FStyleBorderBottomStyle[StyleIdx] <> TExcelBorderStyle.None) then
+    Cell.SetBorderStyle([TExcelBorderSide.Bottom], FStyleBorderBottomStyle[StyleIdx]);
+  if (StyleIdx < FStyleBorderBottomColor.Count) and (FStyleBorderBottomColor[StyleIdx] <> 0) then
+    Cell.SetBorderColor([TExcelBorderSide.Bottom], FStyleBorderBottomColor[StyleIdx]);
+  if (StyleIdx < FStyleBorderLeftStyle.Count) and (FStyleBorderLeftStyle[StyleIdx] <> TExcelBorderStyle.None) then
+    Cell.SetBorderStyle([TExcelBorderSide.Left], FStyleBorderLeftStyle[StyleIdx]);
+  if (StyleIdx < FStyleBorderLeftColor.Count) and (FStyleBorderLeftColor[StyleIdx] <> 0) then
+    Cell.SetBorderColor([TExcelBorderSide.Left], FStyleBorderLeftColor[StyleIdx]);
+  if (StyleIdx < FStyleHAlign.Count) and (FStyleHAlign[StyleIdx] <> TExcelHAlign.None) then
+    Cell.SetHAlign(FStyleHAlign[StyleIdx]);
+  if (StyleIdx < FStyleVAlign.Count) and (FStyleVAlign[StyleIdx] <> TExcelVAlign.None) then
+    Cell.SetVAlign(FStyleVAlign[StyleIdx]);
+  if (StyleIdx < FStyleWrapText.Count) and (FStyleWrapText[StyleIdx]) then
+    Cell.SetWrapText(True);
+  if (StyleIdx < FStyleNumberFormat.Count) and (FStyleNumberFormat[StyleIdx] <> '') then
+    Cell.SetNumberFormat(FStyleNumberFormat[StyleIdx]);
+end;
+
+procedure TExcelWorkbookReader.ParseMergedCells(const Sheet: TExcelSheet; const Xml, Prefix: string);
+begin
+  for var MergeCell in TXml.FindElements(Xml, Prefix + 'mergeCell') do
+  begin
+    const Range = MergeCell.Attribute('ref');
+    if not Range.IsEmpty then
+      Sheet.MergeCells(Range);
+  end;
 end;
 
 constructor TExcelWorkbookReader.Create(const Content: TExcelWorkbookContent);
 begin
   inherited Create;
   FContent := Content;
+  FSheetRelationshipIds := TList<string>.Create;
   FSharedStrings := TList<string>.Create;
   FStyleBold := TList<Boolean>.Create;
   FStyleItalic := TList<Boolean>.Create;
@@ -1021,6 +1092,7 @@ begin
   FStyleItalic.Free;
   FStyleBold.Free;
   FSharedStrings.Free;
+  FSheetRelationshipIds.Free;
   inherited;
 end;
 
@@ -1054,42 +1126,54 @@ begin
 
     for var I := 0 to FContent.Sheets.Count - 1 do
     begin
-      const SheetPath = PartSheetPrefix + IntToStr(I + 1) + PartSheetSuffix;
+      const SheetPath = SheetPartPath(Rels, I);
       const Sheet = FContent.Sheets[I] as TExcelSheet;
 
       if Package.PartExists(SheetPath) then
         ParseSheet(Sheet, Package.GetPartContent(SheetPath));
 
-      ReadSheetComments(Package, Sheet, I);
+      ReadSheetComments(Package, Sheet, SheetPath);
     end;
   finally
     Rels.Free;
   end;
 end;
 
-procedure TExcelWorkbookReader.ReadSheetComments(const Package: TOXMLPackage; const Sheet: TExcelSheet;
-  SheetIndex: Integer);
+// A sheet's part is the target of the relationship its r:id names. Part names
+// are the writer's choice: after sheets are reordered in Excel, the first sheet
+// can live in sheet3.xml, and openpyxl states its targets as absolute paths.
+// Without a resolvable relationship the conventional name is the best guess.
+function TExcelWorkbookReader.SheetPartPath(const Rels: TRelationships; const SheetIndex: Integer): string;
 begin
-  const SheetRelsPath = 'xl/worksheets/_rels/sheet' + IntToStr(SheetIndex + 1) + '.xml.rels';
+  var Relationship: TRelationship;
+  const HasRelationship = ((SheetIndex < FSheetRelationshipIds.Count) and
+                           Rels.TryGetById(FSheetRelationshipIds[SheetIndex], Relationship));
+  if HasRelationship then
+  begin
+    Result := TRelationships.ResolveTarget(PartWorkbook, Relationship.Target);
+    Exit;
+  end;
+
+  Result := PartSheetPrefix + IntToStr(SheetIndex + 1) + PartSheetSuffix;
+end;
+
+procedure TExcelWorkbookReader.ReadSheetComments(const Package: TOXMLPackage; const Sheet: TExcelSheet;
+                                                 const SheetPath: string);
+begin
+  const SheetRelsPath = TRelationships.RelationshipsPartOf(SheetPath);
   if not Package.PartExists(SheetRelsPath) then
     Exit;
 
   var SheetRels := TRelationships.Create;
   try
     SheetRels.LoadFromXml(Package.GetPartContent(SheetRelsPath));
-    const CommentsTarget = SheetRels.GetTargetByType(NsOfficeDocumentRelationships + '/comments');
+    const CommentsTarget = SheetRels.GetTargetByType(RelTypeComments);
     if CommentsTarget = '' then
       Exit;
 
-    // Targets are written relative to xl/worksheets/ (e.g. '../comments1.xml').
-    // This resolves that specific convention rather than implementing full OPC
-    // relative-URI resolution -- consistent with this library's other pragmatic,
-    // regex-based parsing rather than a general-purpose XML/URI toolchain.
-    var ResolvedPath := CommentsTarget;
-    if ResolvedPath.StartsWith('../') then
-      ResolvedPath := 'xl/' + Copy(ResolvedPath, 4, MaxInt);
-    if Package.PartExists(ResolvedPath) then
-      ParseComments(Sheet, Package.GetPartContent(ResolvedPath));
+    const CommentsPath = TRelationships.ResolveTarget(SheetPath, CommentsTarget);
+    if Package.PartExists(CommentsPath) then
+      ParseComments(Sheet, Package.GetPartContent(CommentsPath));
   finally
     SheetRels.Free;
   end;
