@@ -719,10 +719,10 @@ end;
 function TExcelWorkbookWriter.CachedValueText(const Cell: TExcelCell): string;
 begin
   case Cell.CachedValueType of
-    TCachedValueType.Number  : Result := FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
-    TCachedValueType.Text    : Result := TXml.Escape(Cell.GetAsString);
-    TCachedValueType.Boolean : Result := IfThen(Cell.GetAsBoolean, '1', '0');
-    TCachedValueType.Error   : Result := TXml.Escape(Cell.GetAsString);
+    TExcelCachedValueType.Number  : Result := FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
+    TExcelCachedValueType.Text    : Result := TXml.Escape(Cell.GetAsString);
+    TExcelCachedValueType.Boolean : Result := IfThen(Cell.GetAsBoolean, '1', '0');
+    TExcelCachedValueType.Error   : Result := TXml.Escape(Cell.GetAsString);
   else
     raise ENotSupportedException.CreateFmt(UnsupportedCachedValueTypeMessage, [Ord(Cell.CachedValueType)]);
   end;

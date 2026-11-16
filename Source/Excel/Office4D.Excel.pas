@@ -20,6 +20,9 @@ type
   TExcelSheetVisibility = (Visible, Hidden, VeryHidden);
   TExcelFontStyle = (Bold, Italic, Underline, Strikeout);
   TExcelFontStyles = set of TExcelFontStyle;
+  // The kind of result a formula cell caches. Text and Error are read through
+  // AsString, Boolean through AsBoolean and Number through AsFloat.
+  TExcelCachedValueType = (None, Number, Text, Boolean, Error);
   {$SCOPEDENUMS OFF}
 
   IExcelCell = interface;
@@ -38,14 +41,27 @@ type
     procedure SetAsDateTime(const Value: TDateTime);
     function GetFormula: string;
     function GetHasFormula: Boolean;
+    /// Sets a formula with its cached value. The library does not evaluate the
+    /// formula; the caller supplies a result of the type the formula returns.
     procedure SetFormula(const Formula: string; const CachedValue: Double); overload;
+    procedure SetFormula(const Formula: string; const CachedValue: string); overload;
+    procedure SetFormula(const Formula: string; const CachedValue: Boolean); overload;
     /// Sets a formula without a cached value, so the cell is saved without one.
     procedure SetFormula(const Formula: string); overload;
     function GetHasCachedValue: Boolean;
+    function GetCachedValueType: TExcelCachedValueType;
     /// Replaces the cached value of a formula cell: the result a spreadsheet
-    /// application shows until it recalculates. Raises EExcelWorkbookException
-    /// on a cell without a formula.
-    procedure SetCachedValue(const Value: Double);
+    /// application shows until it recalculates. The library does not evaluate
+    /// the formula; the caller supplies a result of the type the formula
+    /// returns. Raises EExcelWorkbookException on a cell without a formula.
+    procedure SetCachedValue(const Value: Double); overload;
+    procedure SetCachedValue(const Value: string); overload;
+    procedure SetCachedValue(const Value: Boolean); overload;
+    /// Caches an error result such as #N/A or #DIV/0! for a formula cell. The
+    /// library does not evaluate the formula or check the error code; the caller
+    /// supplies the error the formula returns. Raises EExcelWorkbookException on
+    /// a cell without a formula.
+    procedure SetCachedError(const Error: string);
     /// Drops the cached value of a formula cell, so the formula is saved without
     /// one. Raises EExcelWorkbookException on a cell without a formula.
     procedure ClearCachedValue;
@@ -86,9 +102,12 @@ type
     property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
     property Formula: string read GetFormula;
     property HasFormula: Boolean read GetHasFormula;
-    /// True for a formula cell that carries a cached value; AsFloat then returns
-    /// it. False for a cell without a formula.
+    /// True for a formula cell that carries a cached value. False for a cell
+    /// without a formula.
     property HasCachedValue: Boolean read GetHasCachedValue;
+    /// The kind of cached value, which tells through which property to read it.
+    /// None for a cell without a formula or without a cached value.
+    property CachedValueType: TExcelCachedValueType read GetCachedValueType;
     property Bold: Boolean read GetBold write SetBold;
     property Italic: Boolean read GetItalic write SetItalic;
     property Underline: Boolean read GetUnderline write SetUnderline;

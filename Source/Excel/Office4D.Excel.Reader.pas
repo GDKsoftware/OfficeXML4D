@@ -935,7 +935,9 @@ begin
 
   if Formula <> '' then
   begin
-    const ValueType = TCachedValueType.FromCellTypeAttribute(CellType);
+    var ValueType := TExcelCachedValueType.None;
+    if CellXml.HasValue then
+      ValueType := TExcelCachedValueType.FromCellTypeAttribute(CellType);
     Sheet.SetCellFormula(Address, Formula, Value, ValueType);
     Result := Sheet.GetCell(Address) as TExcelCell;
   end
