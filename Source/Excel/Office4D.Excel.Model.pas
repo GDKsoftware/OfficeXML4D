@@ -22,6 +22,9 @@ type
 
 const
   UnsupportedCachedValueTypeMessage = 'Unsupported cached value type: %d';
+  FormulaCellRequiredMessage        = 'Only a formula cell carries a cached value';
+  CachedBooleanTrue                 = '1';
+  CachedBooleanFalse                = '0';
 
 type
   TExcelWorkbookContent = class;
@@ -56,6 +59,7 @@ type
     procedure StoreCachedError(const Error: string);
     procedure DropCachedValue;
     procedure RestoreCachedValue(const Value: string; const ValueType: TExcelCachedValueType);
+    procedure GuardHasFormula;
   public
     function GetAsString: string;
     procedure SetAsString(const Value: string);
@@ -545,7 +549,7 @@ end;
 
 procedure TExcelCell.StoreCachedValue(const Value: Boolean);
 begin
-  RestoreCachedValue(IfThen(Value, '1', '0'), TExcelCachedValueType.Boolean);
+  RestoreCachedValue(IfThen(Value, CachedBooleanTrue, CachedBooleanFalse), TExcelCachedValueType.Boolean);
 end;
 
 procedure TExcelCell.StoreCachedError(const Error: string);
@@ -568,7 +572,7 @@ procedure TExcelCell.RestoreCachedValue(const Value: string; const ValueType: TE
 begin
   StoreCachedValue(StrToFloatDef(Value, 0, TFormatSettings.Invariant));
   FStringValue := Value;
-  FBooleanValue := (ValueType = TExcelCachedValueType.Boolean) and (Value = '1');
+  FBooleanValue := (ValueType = TExcelCachedValueType.Boolean) and (Value = CachedBooleanTrue);
   FCachedValueType := ValueType;
 end;
 
@@ -668,11 +672,9 @@ end;
 
 function TExcelCell.GetHasCachedValue: Boolean;
 begin
-  Result := GetCachedValueType <> TExcelCachedValueType.None;
+  Result := (GetCachedValueType <> TExcelCachedValueType.None);
 end;
 
-// Assigning a plain value clears the formula and leaves FCachedValueType
-// behind, so only a formula cell reports it.
 function TExcelCell.GetCachedValueType: TExcelCachedValueType;
 begin
   if GetHasFormula then
@@ -683,42 +685,40 @@ end;
 
 procedure TExcelCell.SetCachedValue(const Value: Double);
 begin
-  if GetHasFormula then
-    StoreCachedValue(Value)
-  else
-    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
+  GuardHasFormula;
+  StoreCachedValue(Value);
 end;
 
 procedure TExcelCell.SetCachedValue(const Value: string);
 begin
-  if GetHasFormula then
-    StoreCachedValue(Value)
-  else
-    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
+  GuardHasFormula;
+  StoreCachedValue(Value);
 end;
 
 procedure TExcelCell.SetCachedValue(const Value: Boolean);
 begin
-  if GetHasFormula then
-    StoreCachedValue(Value)
-  else
-    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
+  GuardHasFormula;
+  StoreCachedValue(Value);
 end;
 
 procedure TExcelCell.SetCachedError(const Error: string);
 begin
-  if GetHasFormula then
-    StoreCachedError(Error)
-  else
-    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
+  GuardHasFormula;
+  StoreCachedError(Error);
 end;
 
 procedure TExcelCell.ClearCachedValue;
 begin
+  GuardHasFormula;
+  DropCachedValue;
+end;
+
+procedure TExcelCell.GuardHasFormula;
+begin
   if GetHasFormula then
-    DropCachedValue
-  else
-    raise EExcelWorkbookException.Create('Only a formula cell carries a cached value');
+    Exit;
+
+  raise EExcelWorkbookException.Create(FormulaCellRequiredMessage);
 end;
 
 function TExcelCell.GetBold: Boolean;
@@ -1200,11 +1200,11 @@ end;
 
 procedure TExcelSheet.SetCellFormula(const Address, Formula, Value: string; const ValueType: TExcelCachedValueType);
 begin
-  // Value is the text of <v>. An empty one is a result only where the formula
-  // returns text; the cell otherwise carries no cached value.
   const Cell = GetCell(Address) as TExcelCell;
   Cell.SetFormula(Formula);
-  const HoldsResult = ((Value <> '') or (ValueType = TExcelCachedValueType.Text));
+
+  const IsEmptyTextResult = (ValueType = TExcelCachedValueType.Text);
+  const HoldsResult       = ((Value <> '') or IsEmptyTextResult);
   if HoldsResult then
     Cell.RestoreCachedValue(Value, ValueType);
 end;

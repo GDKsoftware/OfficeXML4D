@@ -86,7 +86,19 @@ type
     procedure SetCachedValue_LoadedTextResult_IsWrittenAsNumber;
 
     [Test]
-    procedure CachedValueType_FollowsTheCachedValue;
+    procedure CachedValueType_ValueCell_IsNone;
+
+    [Test]
+    procedure CachedValueType_NumericResult_IsNumber;
+
+    [Test]
+    procedure CachedValueType_ClearedResult_IsNone;
+
+    [Test]
+    procedure CachedValueType_TextResult_IsText;
+
+    [Test]
+    procedure CachedValueType_ValueReplacesFormula_IsNone;
 
     [Test]
     procedure SetFormulaWithText_StoresTextResult;
@@ -397,23 +409,52 @@ begin
   Assert.IsTrue(WritesNumber, Format('Expected %s in the saved sheet', [Expected]));
 end;
 
-procedure TExcelCachedValueTests.CachedValueType_FollowsTheCachedValue;
+procedure TExcelCachedValueTests.CachedValueType_ValueCell_IsNone;
 begin
   const Sheet = FWorkbook.AddSheet('Sheet1');
+
   Sheet.Cell['A1'].AsString := 'Value';
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['A1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_NumericResult_IsNumber;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+
   Sheet.Cell['B1'].SetFormula('A1*2', 20);
 
-  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['A1'].CachedValueType), 'A value cell');
-  Assert.AreEqual(Ord(TExcelCachedValueType.Number), Ord(Sheet.Cell['B1'].CachedValueType), 'A numeric result');
+  Assert.AreEqual(Ord(TExcelCachedValueType.Number), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_ClearedResult_IsNone;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
 
   Sheet.Cell['B1'].ClearCachedValue;
-  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['B1'].CachedValueType), 'A cleared result');
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_TextResult_IsText;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
 
   Sheet.Cell['B1'].SetCachedValue('Text');
-  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Sheet.Cell['B1'].CachedValueType), 'A text result');
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_ValueReplacesFormula_IsNone;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
 
   Sheet.Cell['B1'].AsFloat := 7;
-  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['B1'].CachedValueType), 'A value replaces the formula');
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['B1'].CachedValueType));
 end;
 
 procedure TExcelCachedValueTests.SetFormulaWithText_StoresTextResult;

@@ -20,8 +20,8 @@ type
   TExcelSheetVisibility = (Visible, Hidden, VeryHidden);
   TExcelFontStyle = (Bold, Italic, Underline, Strikeout);
   TExcelFontStyles = set of TExcelFontStyle;
-  // The kind of result a formula cell caches. Text and Error are read through
-  // AsString, Boolean through AsBoolean and Number through AsFloat.
+  /// The kind of result a formula cell caches. Text and Error are read through
+  /// AsString, Boolean through AsBoolean and Number through AsFloat.
   TExcelCachedValueType = (None, Number, Text, Boolean, Error);
   {$SCOPEDENUMS OFF}
 
