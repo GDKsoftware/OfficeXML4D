@@ -469,7 +469,7 @@ begin
                 end;
               TCellType.Boolean:
                 begin
-                  const BoolVal = IfThen(Cell.GetAsBoolean, '1', '0');
+                  const BoolVal = IfThen(Cell.GetAsBoolean, CachedBooleanTrue, CachedBooleanFalse);
                   SB.Append('<c r="' + CellPair.Key + '"' + StyleAttr + ' t="b"><v>' + BoolVal + '</v></c>');
                 end;
               TCellType.Number:
@@ -719,10 +719,10 @@ end;
 function TExcelWorkbookWriter.CachedValueText(const Cell: TExcelCell): string;
 begin
   case Cell.CachedValueType of
-    TCachedValueType.Number  : Result := FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
-    TCachedValueType.Text    : Result := TXml.Escape(Cell.GetAsString);
-    TCachedValueType.Boolean : Result := IfThen(Cell.GetAsBoolean, '1', '0');
-    TCachedValueType.Error   : Result := TXml.Escape(Cell.GetAsString);
+    TExcelCachedValueType.Number  : Result := FormatFloat('0.##############', Cell.GetAsFloat, TFormatSettings.Invariant);
+    TExcelCachedValueType.Text    : Result := TXml.Escape(Cell.GetAsString);
+    TExcelCachedValueType.Boolean : Result := IfThen(Cell.GetAsBoolean, CachedBooleanTrue, CachedBooleanFalse);
+    TExcelCachedValueType.Error   : Result := TXml.Escape(Cell.GetAsString);
   else
     raise ENotSupportedException.CreateFmt(UnsupportedCachedValueTypeMessage, [Ord(Cell.CachedValueType)]);
   end;

@@ -220,6 +220,17 @@ begin
   // A formula can also be set without a cached value
   Sheet.Cell['B5'].SetFormula('B4*1.21');
 
+  // A cached value can be a number, text, a boolean or an error. The caller
+  // supplies a result of the type the formula returns; the library checks
+  // neither the type nor the error code. CachedValueType tells which kind a cell
+  // holds, and so through which property to read it.
+  Sheet.Cell['B6'].SetFormula('UPPER(A1)', 'WIDGET');
+  Sheet.Cell['B7'].SetFormula('B4>1000', True);
+  Sheet.Cell['B8'].SetFormula('VLOOKUP(A9,A1:B3,2,FALSE)');
+  Sheet.Cell['B8'].SetCachedError('#N/A');
+  if Sheet.Cell['B6'].CachedValueType = TExcelCachedValueType.Text then
+    WriteLn('B6 shows ', Sheet.Cell['B6'].AsString);
+
   // Drop the cached values of every formula on a sheet, or in the workbook
   Sheet.ClearCachedValues;
   Workbook.ClearCachedValues;
@@ -388,7 +399,7 @@ Examples/      - Demo application
 - Text formatting: bold, italic, underline, strikeout
 - Number formats (currency, percentage, custom)
 - Formulas with cached values (optional recalculation on load via `RecalculateOnLoad`)
-- Set or clear a formula's cached value per cell, sheet or workbook
+- Set or clear a formula's cached value per cell, sheet or workbook; a cached value can be a number, text, a boolean or an error
 - Used range of a sheet (`LastRow`, `LastColumn`, `UsedRange`)
 - Column widths
 - Merged cells

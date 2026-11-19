@@ -84,6 +84,54 @@ type
 
     [Test]
     procedure SetCachedValue_LoadedTextResult_IsWrittenAsNumber;
+
+    [Test]
+    procedure CachedValueType_ValueCell_IsNone;
+
+    [Test]
+    procedure CachedValueType_NumericResult_IsNumber;
+
+    [Test]
+    procedure CachedValueType_ClearedResult_IsNone;
+
+    [Test]
+    procedure CachedValueType_TextResult_IsText;
+
+    [Test]
+    procedure CachedValueType_ValueReplacesFormula_IsNone;
+
+    [Test]
+    procedure SetFormulaWithText_StoresTextResult;
+
+    [Test]
+    procedure SetFormulaWithBoolean_StoresBooleanResult;
+
+    [Test]
+    procedure SetCachedError_FormulaCell_StoresErrorResult;
+
+    [Test]
+    procedure SetCachedError_CellWithoutFormula_Raises;
+
+    [Test]
+    procedure SaveToFile_TextCachedValue_WritesStrType;
+
+    [Test]
+    procedure SaveToFile_BooleanCachedValue_WritesBType;
+
+    [Test]
+    procedure SaveToFile_ErrorCachedValue_WritesEType;
+
+    [Test]
+    procedure RoundTrip_TextCachedValue_IsPreserved;
+
+    [Test]
+    procedure RoundTrip_EmptyTextCachedValue_IsPreserved;
+
+    [Test]
+    procedure RoundTrip_BooleanCachedValue_IsPreserved;
+
+    [Test]
+    procedure RoundTrip_ErrorCachedValue_IsPreserved;
   end;
 
 implementation
@@ -359,6 +407,187 @@ begin
   const Expected = Format(FormulaCellXml, ['', '5']);
   const WritesNumber = (Pos(Expected, SheetXml) > 0);
   Assert.IsTrue(WritesNumber, Format('Expected %s in the saved sheet', [Expected]));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_ValueCell_IsNone;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+
+  Sheet.Cell['A1'].AsString := 'Value';
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['A1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_NumericResult_IsNumber;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Number), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_ClearedResult_IsNone;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+
+  Sheet.Cell['B1'].ClearCachedValue;
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_TextResult_IsText;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+
+  Sheet.Cell['B1'].SetCachedValue('Text');
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.CachedValueType_ValueReplacesFormula_IsNone;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+
+  Sheet.Cell['B1'].AsFloat := 7;
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.None), Ord(Sheet.Cell['B1'].CachedValueType));
+end;
+
+procedure TExcelCachedValueTests.SetFormulaWithText_StoresTextResult;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('A1*2', 20);
+
+  Sheet.Cell['B1'].SetFormula('UPPER(A1)', 'ABC');
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Sheet.Cell['B1'].CachedValueType));
+  Assert.AreEqual('ABC', Sheet.Cell['B1'].AsString);
+  Assert.AreEqual(Double(0), Sheet.Cell['B1'].AsFloat, 'The previous number must not linger');
+end;
+
+procedure TExcelCachedValueTests.SetFormulaWithBoolean_StoresBooleanResult;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+
+  Sheet.Cell['B1'].SetFormula('ISNUMBER(A1)', True);
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Boolean), Ord(Sheet.Cell['B1'].CachedValueType));
+  Assert.IsTrue(Sheet.Cell['B1'].AsBoolean);
+end;
+
+procedure TExcelCachedValueTests.SetCachedError_FormulaCell_StoresErrorResult;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('VLOOKUP(A1,C:D,2,FALSE)', 20);
+
+  Sheet.Cell['B1'].SetCachedError('#N/A');
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Error), Ord(Sheet.Cell['B1'].CachedValueType));
+  Assert.AreEqual('#N/A', Sheet.Cell['B1'].AsString);
+  Assert.IsTrue(Sheet.Cell['B1'].HasCachedValue);
+end;
+
+procedure TExcelCachedValueTests.SetCachedError_CellWithoutFormula_Raises;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['A1'].AsString := 'Value';
+
+  Assert.WillRaise(
+    procedure
+    begin
+      Sheet.Cell['A1'].SetCachedError('#N/A');
+    end,
+    EExcelWorkbookException,
+    'A cell without a formula must refuse a cached error');
+  Assert.AreEqual('Value', Sheet.Cell['A1'].AsString, 'The refused call must leave the value alone');
+end;
+
+procedure TExcelCachedValueTests.SaveToFile_TextCachedValue_WritesStrType;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('UPPER(A1)', 'A&B');
+
+  const SheetXml = ReadSheet1Xml;
+
+  const HasTextResult = (Pos('<c r="B1" t="str"><f>UPPER(A1)</f><v>A&amp;B</v></c>', SheetXml) > 0);
+  Assert.IsTrue(HasTextResult, 'A text result is written as t="str" with the escaped text');
+end;
+
+procedure TExcelCachedValueTests.SaveToFile_BooleanCachedValue_WritesBType;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('ISNUMBER(A1)', True);
+
+  const SheetXml = ReadSheet1Xml;
+
+  const HasBooleanResult = (Pos('<c r="B1" t="b"><f>ISNUMBER(A1)</f><v>1</v></c>', SheetXml) > 0);
+  Assert.IsTrue(HasBooleanResult, 'A boolean result is written as t="b"');
+end;
+
+procedure TExcelCachedValueTests.SaveToFile_ErrorCachedValue_WritesEType;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('NA()');
+  Sheet.Cell['B1'].SetCachedError('#N/A');
+
+  const SheetXml = ReadSheet1Xml;
+
+  const HasErrorResult = (Pos('<c r="B1" t="e"><f>NA()</f><v>#N/A</v></c>', SheetXml) > 0);
+  Assert.IsTrue(HasErrorResult, 'An error result is written as t="e"');
+end;
+
+procedure TExcelCachedValueTests.RoundTrip_TextCachedValue_IsPreserved;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('UPPER(A1)', 'A&B');
+
+  const Loaded = SaveAndLoad;
+
+  const Cell = Loaded.Sheets[0].Cell['B1'];
+  Assert.AreEqual('UPPER(A1)', Cell.Formula);
+  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Cell.CachedValueType));
+  Assert.AreEqual('A&B', Cell.AsString);
+end;
+
+procedure TExcelCachedValueTests.RoundTrip_EmptyTextCachedValue_IsPreserved;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('IF(A1,"","x")', '');
+
+  const Loaded = SaveAndLoad;
+
+  const Cell = Loaded.Sheets[0].Cell['B1'];
+  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Cell.CachedValueType), 'An empty text result is still a result');
+  Assert.AreEqual('', Cell.AsString);
+end;
+
+procedure TExcelCachedValueTests.RoundTrip_BooleanCachedValue_IsPreserved;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('ISNUMBER(A1)', False);
+
+  const Loaded = SaveAndLoad;
+
+  const Cell = Loaded.Sheets[0].Cell['B1'];
+  Assert.AreEqual(Ord(TExcelCachedValueType.Boolean), Ord(Cell.CachedValueType));
+  Assert.IsFalse(Cell.AsBoolean);
+end;
+
+procedure TExcelCachedValueTests.RoundTrip_ErrorCachedValue_IsPreserved;
+begin
+  const Sheet = FWorkbook.AddSheet('Sheet1');
+  Sheet.Cell['B1'].SetFormula('1/0');
+  Sheet.Cell['B1'].SetCachedError('#DIV/0!');
+
+  const Loaded = SaveAndLoad;
+
+  const Cell = Loaded.Sheets[0].Cell['B1'];
+  Assert.AreEqual(Ord(TExcelCachedValueType.Error), Ord(Cell.CachedValueType));
+  Assert.AreEqual('#DIV/0!', Cell.AsString);
 end;
 
 initialization

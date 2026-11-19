@@ -33,6 +33,9 @@ type
 
     [Test]
     procedure LoadFromStream_CellsWithoutValueOrFormula_AreSkipped;
+
+    [Test]
+    procedure LoadFromStream_TypedFormulaResults_KeepTheirType;
   end;
 
 implementation
@@ -115,6 +118,27 @@ begin
 
   Assert.IsFalse(Sheet.Cells.ContainsKey('A1'), 'An empty cell holds nothing to read');
   Assert.AreEqual(Double(5), Sheet.Cell['C1'].AsFloat);
+end;
+
+procedure TExcelSharedFormulaParsingTests.LoadFromStream_TypedFormulaResults_KeepTheirType;
+begin
+  const SheetData =
+    '<row r="1"><c r="A1" t="str"><f>UPPER("a&amp;b")</f><v>A&amp;B</v></c>' +
+    '<c r="B1" t="b"><f>ISNUMBER(1)</f><v>1</v></c>' +
+    '<c r="C1" t="e"><f>NA()</f><v>#N/A</v></c>' +
+    '<c r="D1"><f>1+1</f><v>2</v></c></row>';
+
+  const Workbook = LoadWorkbook(SheetData);
+  const Sheet = Workbook.Sheets[0];
+
+  Assert.AreEqual(Ord(TExcelCachedValueType.Text), Ord(Sheet.Cell['A1'].CachedValueType), 'A1');
+  Assert.AreEqual('A&B', Sheet.Cell['A1'].AsString, 'The text result is unescaped');
+  Assert.AreEqual(Ord(TExcelCachedValueType.Boolean), Ord(Sheet.Cell['B1'].CachedValueType), 'B1');
+  Assert.IsTrue(Sheet.Cell['B1'].AsBoolean);
+  Assert.AreEqual(Ord(TExcelCachedValueType.Error), Ord(Sheet.Cell['C1'].CachedValueType), 'C1');
+  Assert.AreEqual('#N/A', Sheet.Cell['C1'].AsString);
+  Assert.AreEqual(Ord(TExcelCachedValueType.Number), Ord(Sheet.Cell['D1'].CachedValueType), 'D1');
+  Assert.AreEqual(Double(2), Sheet.Cell['D1'].AsFloat);
 end;
 
 function TExcelSharedFormulaParsingTests.LoadWorkbook(const SheetDataXml: string): IExcelWorkbook;
